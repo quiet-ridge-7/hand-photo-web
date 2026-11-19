@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' data: blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="robots" content="noindex, nofollow">
+<title>手の撮影</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>手の撮影</h1>
+  <p class="sub">手のひら・手の甲・指先を、ガイドに合わせて、撮ります。</p>
+
+  <div id="modes" class="seg" role="group" aria-label="撮り方">
+    <button type="button" data-mode="palm" class="on">手のひら</button>
+    <button type="button" data-mode="back">手の甲</button>
+    <button type="button" data-mode="tip">指先</button>
+  </div>
+  <div id="tip-sub" class="seg seg2" role="group" aria-label="指先の撮り方" hidden>
+    <button type="button" data-sub="tip5" class="on">5本まとめて</button>
+    <button type="button" data-sub="tip1">1本ずつ</button>
+  </div>
+  <p id="mode-help" class="sub"></p>
+
+  <section id="camera-view">
+    <div id="stage">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div id="guide" role="status" aria-live="polite">準備しています…</div>
+    </div>
+    <progress id="hold" max="1" value="0"></progress>
+    <ul id="checks"></ul>
+    <p id="status" class="sub">カメラを準備しています…</p>
+    <div class="btns">
+      <button type="button" id="shoot">撮影</button>
+      <button type="button" id="flip">カメラを切り替える</button>
+    </div>
+  </section>
+
+  <section id="result" hidden>
+    <img id="shot" alt="撮れた写真">
+    <p id="saved-note" class="sub"></p>
+    <div class="btns">
+      <button type="button" id="save" class="primary">写真に保存</button>
+      <button type="button" id="again">もう一度撮る</button>
+    </div>
+  </section>
+
+  <details id="numbers">
+    <summary>確認用の数字</summary>
+    <pre id="numbers-text">(手が映ると、数字が出ます)</pre>
+  </details>
+
+  <details id="about">
+    <summary>このアプリについて</summary>
+    <p>映像と写真は、あなたの端末の中だけで、処理します。サーバーには、送りません。</p>
+    <p>撮影を助ける、ガイドです。医療の判定では、ありません。手の向きや、指の開き方の判定は、ずれることがあります。</p>
+    <p>写真は、「写真に保存」を押した時だけ、あなたの端末に、保存します(iPhone は、共有の画面が、開きます)。</p>
+    <p>このサイトを、置いているサービスには、ページを開いた記録(アクセス記録)が、残ることがあります。</p>
+    <p>手の検出に、Google の MediaPipe(Apache License 2.0)を、使っています。</p>
+  </details>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

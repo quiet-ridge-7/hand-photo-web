@@ -1,0 +1,7 @@
+node_modules/
+captures/
+*.jpg
+*.jpeg
+*.png.tmp
+Thumbs.db
+.DS_Store
