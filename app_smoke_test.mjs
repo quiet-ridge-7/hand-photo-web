@@ -119,7 +119,7 @@ try {
   await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 20, tilt: -10 } });
   await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
   const nums = JSON.parse(await text("#numbers-text"));
-  check("B3b 3次元の点を渡すと、「確認用の数字」に、pan・tilt・angle(度)が、出る(pan 20、tilt 10 の大きさ)", Math.abs(Math.abs(nums.pan) - 20) < 1 && Math.abs(Math.abs(nums.tilt) - 10) < 1 && Math.abs(nums.angle - 22.3) < 1.5, JSON.stringify(nums));
+  check("B3b 3次元の点を渡すと、「確認用の数字」に、点すべての面の pan・tilt・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt 10 の大きさ)", Math.abs(Math.abs(nums.pan) - 20) < 1 && Math.abs(Math.abs(nums.tilt) - 10) < 1 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1 && nums.rms !== undefined, JSON.stringify(nums));
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });

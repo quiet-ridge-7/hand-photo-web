@@ -105,6 +105,50 @@ export function palmAngles(world) {
   return { pan: deg(Math.atan2(n.x, -n.z)), tilt: deg(Math.atan2(n.y, -n.z)), angle: deg(Math.acos(Math.min(1, -n.z))) };
 }
 
+// 3x3 の対称行列の、固有値と固有ベクトル(ヤコビ法)。 戻り値: { values: [3つ], vectors: [3つの、長さ 1 のベクトル(同じ順番)] }
+export function eigenSym3(m) {
+  const A = m.map((r) => r.slice());
+  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 60; sweep++) {
+    if (Math.abs(A[0][1]) + Math.abs(A[0][2]) + Math.abs(A[1][2]) < 1e-20) break;
+    for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+      if (Math.abs(A[p][q]) < 1e-30) continue;
+      const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+      const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < 3; k++) { const x = A[k][p], y = A[k][q]; A[k][p] = c * x - s * y; A[k][q] = s * x + c * y; }
+      for (let k = 0; k < 3; k++) { const x = A[p][k], y = A[q][k]; A[p][k] = c * x - s * y; A[q][k] = s * x + c * y; }
+      for (let k = 0; k < 3; k++) { const x = V[k][p], y = V[k][q]; V[k][p] = c * x - s * y; V[k][q] = s * x + c * y; }
+    }
+  }
+  return { values: [A[0][0], A[1][1], A[2][2]], vectors: [0, 1, 2].map((j) => ({ x: V[0][j], y: V[1][j], z: V[2][j] })) };
+}
+
+// 手の点(3次元。メートル)すべてに、いちばんよく合う、平らな面を、あてはめて、その向きの、カメラに対する角度を出す。
+//   戻り値: { pan, tilt, angle(度), rms(あてはまりの悪さ = 面からの、ずれの、二乗平均の平方根。ミリメートル) } | null
+//   使う点: 21個すべて(points を渡せば、その点だけ)。 面の法線は、手前(カメラ側 = -z)に、向けて、符号を決める。
+//   手の点は、指を曲げたり、開いたりすると、平らではなくなる。その時は、rms が、大きくなる。
+export function handAngles(world, points = null) {
+  if (!world || world.length < 21) return null;
+  const pts = (points ?? world.map((_, i) => i)).map((i) => world[i]);
+  if (pts.length < 3 || !pts.every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
+  const n = pts.length;
+  const m = { x: pts.reduce((s, q) => s + q.x, 0) / n, y: pts.reduce((s, q) => s + q.y, 0) / n, z: pts.reduce((s, q) => s + q.z, 0) / n };
+  const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const q of pts) {
+    const d = [q.x - m.x, q.y - m.y, q.z - m.z];
+    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) C[a][b] += (d[a] * d[b]) / n;
+  }
+  const { values, vectors } = eigenSym3(C);
+  let k = 0;
+  for (let i = 1; i < 3; i++) if (values[i] < values[k]) k = i;
+  if (values[0] + values[1] + values[2] < 1e-18) return null;
+  let v = vectors[k];
+  if (v.z > 0) v = { x: -v.x, y: -v.y, z: -v.z };
+  const deg = (r) => (r * 180) / Math.PI;
+  return { pan: deg(Math.atan2(v.x, -v.z)), tilt: deg(Math.atan2(v.y, -v.z)), angle: deg(Math.acos(Math.min(1, -v.z))), rms: Math.sqrt(Math.max(0, values[k])) * 1000 };
+}
+
 // 手のひらの、傾き: 幅(人差し指と小指の付け根) ÷ 高さ(手首と中指の付け根)。傾くと、小さくなる
 export function flatness(lm, frame) {
   const width = dist(px(lm[LM.INDEX_MCP], frame), px(lm[LM.PINKY_MCP], frame));
@@ -236,8 +280,12 @@ export function evaluate(input) {
   if (lm) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
-    const ang = palmAngles(world);   // 手の面の、カメラに対する、角度(確認用の数字だけ。まだ、判定には、使わない)
-    if (ang) { numbers.pan = Math.round(ang.pan * 10) / 10; numbers.tilt = Math.round(ang.tilt * 10) / 10; numbers.angle = Math.round(ang.angle * 10) / 10; }
+    // 手の面の、カメラに対する、角度(確認用の数字だけ。まだ、判定には、使わない)
+    //   pan / tilt / angle / rms: 手の点21個すべてに、あてはめた面。  pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
+    const all = handAngles(world), three = palmAngles(world);
+    const r1 = (v) => Math.round(v * 10) / 10;
+    if (all) { numbers.pan = r1(all.pan); numbers.tilt = r1(all.tilt); numbers.angle = r1(all.angle); numbers.rms = r1(all.rms); }
+    if (three) { numbers.pan3 = r1(three.pan); numbers.tilt3 = r1(three.tilt); numbers.angle3 = r1(three.angle); }
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;
