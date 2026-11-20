@@ -3,8 +3,8 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
-import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
+  meanLuma, toGray, sharpness, palmAngles, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
 const test = (name, fn) => {
@@ -98,6 +98,41 @@ test("明るさ・くっきり度: 市松模様は、くっきり。なめらか
   assert.ok(sharpness(toGray(checker), w, h) > T.sharpMin * 20);
   assert.ok(sharpness(toGray(smooth), w, h) < T.sharpMin);
   assert.ok(meanLuma(black) === 0 && meanLuma(checker) > 100 && meanLuma(checker) < 150);
+});
+
+// ---- 手の面の、角度(pan / tilt) ----
+const near = (a, b, tol = 0.5) => Math.abs(a - b) <= tol;
+test("角度: まっすぐ(0, 0)は、0度。pan 20度は、pan だけ 20度(符号は、逆でも、大きさが合う)。tilt 15度は、tilt だけ", () => {
+  const f = palmAngles(makeWorld({ pan: 0, tilt: 0 }));
+  assert.ok(near(f.pan, 0) && near(f.tilt, 0) && near(f.angle, 0), JSON.stringify(f));
+  const p = palmAngles(makeWorld({ pan: 20 }));
+  assert.ok(near(Math.abs(p.pan), 20) && near(p.tilt, 0) && near(p.angle, 20), JSON.stringify(p));
+  const t = palmAngles(makeWorld({ tilt: 15 }));
+  assert.ok(near(t.pan, 0) && near(Math.abs(t.tilt), 15) && near(t.angle, 15), JSON.stringify(t));
+});
+test("角度: 左右に、逆向きにひねると、符号が、逆。右手でも左手でも、手のひらでも甲でも、大きさは、同じ", () => {
+  assert.ok(near(palmAngles(makeWorld({ pan: 25 })).pan, -palmAngles(makeWorld({ pan: -25 })).pan, 0.01));
+  assert.ok(near(palmAngles(makeWorld({ tilt: 25 })).tilt, -palmAngles(makeWorld({ tilt: -25 })).tilt, 0.01));
+  for (const hand of ["right", "left"]) for (const facing of ["palm", "back"]) {
+    const r = palmAngles(makeWorld({ hand, facing, pan: 18, tilt: 9 }));
+    assert.ok(near(r.angle, Math.acos(Math.cos((18 * Math.PI) / 180) * Math.cos((9 * Math.PI) / 180)) * (180 / Math.PI), 0.6), hand + facing + JSON.stringify(r));
+  }
+});
+test("角度: 点が足りない・向きが決まらない時は null", () => {
+  assert.equal(palmAngles(null), null);
+  assert.equal(palmAngles([]), null);
+  const flat = makeWorld({}).map(() => ({ x: 0, y: 0, z: 0 }));
+  assert.equal(palmAngles(flat), null);
+});
+test("角度は、まだ、判定には、使わない: 数字(pan / tilt / angle)に、出るだけ。傾けても、ガイドは、変わらない", () => {
+  const hand = makeHand({ facing: "palm" });
+  const straight = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 0, tilt: 0 }) });
+  const tilted = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 35, tilt: 25 }) });
+  assert.equal(straight.allOk, tilted.allOk);
+  assert.equal(straight.guide, tilted.guide);
+  assert.ok(near(tilted.numbers.angle, 42.1, 5) && tilted.numbers.pan !== undefined && tilted.numbers.tilt !== undefined, JSON.stringify(tilted.numbers));
+  const none = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good });
+  assert.equal(none.numbers.pan, undefined, "3次元の点が、無い時は、数字も、出さない");
 });
 
 // ---- 測る場所 ----

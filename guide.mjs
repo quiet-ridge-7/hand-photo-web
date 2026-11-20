@@ -86,6 +86,25 @@ export function facingOf(lm, label, frame, rawFrame = RAW_FRAME) {
   return { facing: palm ? "palm" : "back", cross, hand: isRight ? "right" : "left" };
 }
 
+// 手のひらの面の、向き(カメラに対する、角度)。 3次元の手の点(worldLandmarks。メートル。x は右、y は下、z は奥)から、出す。
+//   面の法線 = (人差し指の付け根 - 手首) × (小指の付け根 - 手首)。 カメラの向き(z 軸)との、ずれを、2つの角度に分ける。
+//   pan: 左右のひねり(度)  tilt: 前後の倒れ(度)  angle: 合わせた、ずれ(度)。 0 = 手のひら(甲)が、カメラに、まっすぐ向いている。
+//   符号は、法線を、カメラ側(手前)に、向けて、決める。 点が、足りない・向きが、決まらない時は、null。
+//   注意: 奥行きの推定には、誤差がある(十数度、ずれることがある)。しきい値は、実機の数字を見て、決める。
+export function palmAngles(world) {
+  if (!world || world.length < 21) return null;
+  const w = world[LM.WRIST], i = world[LM.INDEX_MCP], p = world[LM.PINKY_MCP];
+  if (![w, i, p].every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
+  const v1 = { x: i.x - w.x, y: i.y - w.y, z: i.z - w.z }, v2 = { x: p.x - w.x, y: p.y - w.y, z: p.z - w.z };
+  let n = { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x };
+  const len = Math.hypot(n.x, n.y, n.z);
+  if (len < 1e-9) return null;
+  n = { x: n.x / len, y: n.y / len, z: n.z / len };
+  if (n.z > 0) n = { x: -n.x, y: -n.y, z: -n.z };   // 手前(カメラ側 = -z)に、向ける
+  const deg = (r) => (r * 180) / Math.PI;
+  return { pan: deg(Math.atan2(n.x, -n.z)), tilt: deg(Math.atan2(n.y, -n.z)), angle: deg(Math.acos(Math.min(1, -n.z))) };
+}
+
 // 手のひらの、傾き: 幅(人差し指と小指の付け根) ÷ 高さ(手首と中指の付け根)。傾くと、小さくなる
 export function flatness(lm, frame) {
   const width = dist(px(lm[LM.INDEX_MCP], frame), px(lm[LM.PINKY_MCP], frame));
@@ -205,7 +224,7 @@ export function checkList(mode) {
 //   戻り値: { checks: [{ id, label, ok, msg }], allOk, guide, numbers }
 //   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
 export function evaluate(input) {
-  const { mode, landmarks: lm, label, frame, motion, brightness, sharp } = input;
+  const { mode, landmarks: lm, label, frame, motion, brightness, sharp, world } = input;
   const list = checkList(mode);
   const numbers = {};
   const msgs = {};   // id → 直す、ガイドの文(ok の時は、無い)
@@ -217,6 +236,8 @@ export function evaluate(input) {
   if (lm) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
+    const ang = palmAngles(world);   // 手の面の、カメラに対する、角度(確認用の数字だけ。まだ、判定には、使わない)
+    if (ang) { numbers.pan = Math.round(ang.pan * 10) / 10; numbers.tilt = Math.round(ang.tilt * 10) / 10; numbers.angle = Math.round(ang.angle * 10) / 10; }
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;

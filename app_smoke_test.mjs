@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { makeHand } from "./test_hands.mjs";
+import { makeHand, makeWorld } from "./test_hands.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HTTP_PORT = 8786, CDP_PORT = 9345;
@@ -75,7 +75,7 @@ try {
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push({ download: this.download, href: this.href.slice(0, 5) }); };
     window.__handNow = null;
     if (location.search.includes("fake=1")) {
-      window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
+      window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], worldLandmarks: h.world ? [h.world] : [], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], worldLandmarks: [], handedness: [] }; } };
     }` });
 
   const text = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).textContent`);
@@ -96,7 +96,7 @@ try {
   await load("?fake=1");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備", 20000);
   const V = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
-  const setHand = (opts) => { const hnd = makeHand({ ...opts, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label })}; true`); };
+  const setHand = (opts) => { const { world, ...o } = opts; const hnd = makeHand({ ...o, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label, world: world ? makeWorld({ hand: o.hand, facing: o.facing, ...world }) : null })}; true`); };
   const guide = () => text("#guide");
   const waitGuide = (needle, what = needle) => waitFor(`document.getElementById("guide").textContent.includes(${JSON.stringify(needle)})`, "ガイド: " + what, 8000);
 
@@ -115,6 +115,11 @@ try {
   await setHand({ hand: "right", facing: "palm", scale: 0.8, spread: 0 });
   await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
+
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 20, tilt: -10 } });
+  await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
+  const nums = JSON.parse(await text("#numbers-text"));
+  check("B3b 3次元の点を渡すと、「確認用の数字」に、pan・tilt・angle(度)が、出る(pan 20、tilt 10 の大きさ)", Math.abs(Math.abs(nums.pan) - 20) < 1 && Math.abs(Math.abs(nums.tilt) - 10) < 1 && Math.abs(nums.angle - 22.3) < 1.5, JSON.stringify(nums));
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });

@@ -151,6 +151,7 @@ function loop() {
   let result;
   try { result = state.landmarker.detectForVideo(video, performance.now()); } catch (e) { setStatus("手の検出で、エラーが出ました(" + e.message + ")", "model"); return; }
   const lm = result.landmarks && result.landmarks[0] ? result.landmarks[0] : null;
+  const world = result.worldLandmarks && result.worldLandmarks[0] ? result.worldLandmarks[0] : null;   // 3次元の位置(メートル)
   const label = result.handedness && result.handedness[0] && result.handedness[0][0] ? result.handedness[0][0].categoryName : "Left";
   const now = performance.now();
   const frame = { w: vw, h: vh };
@@ -171,7 +172,7 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp });
+  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world });
   drawHand(lm, r.allOk);
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
