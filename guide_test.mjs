@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめる(RAW_FRAME で、入れ替えられる)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -91,6 +91,24 @@ test("明るさ・くっきり度: 市松模様は、くっきり。なめらか
   assert.ok(sharpness(toGray(checker), w, h) > T.sharpMin * 20);
   assert.ok(sharpness(toGray(smooth), w, h) < T.sharpMin);
   assert.ok(meanLuma(black) === 0 && meanLuma(checker) > 100 && meanLuma(checker) < 150);
+});
+
+// ---- 測る場所 ----
+test("測る場所: 手のひら / 甲は、手の中心と、指の関節のまわり(6か所)。指先は、5本の指先。1本ずつは、中心に近い1本。手が無ければ、画面の中心", () => {
+  const h = makeHand({ facing: "palm" }).lm;
+  const pc = patchCenters(h, "palm");
+  assert.equal(pc.length, 6);
+  const b = bbox(h);
+  assert.ok(pc.every((p) => p.x >= b.minX && p.x <= b.maxX && p.y >= b.minY && p.y <= b.maxY), "手の枠の外に、ある");
+  assert.equal(patchCenters(h, "tip5").length, 5);
+  assert.equal(patchCenters(h, "tip1").length, 1);
+  assert.deepEqual(patchCenters(null, "palm"), [{ x: 0.5, y: 0.5 }]);
+});
+test("測る数字のまとめ: 明るさは平均。くっきり度は、いちばん高い場所(なめらかな皮膚が、混ざっても、下がらない)", () => {
+  const r = combineMeasures([{ bright: 100, sharp: 3 }, { bright: 140, sharp: 260 }, { bright: 120, sharp: 8 }]);
+  assert.equal(r.bright, 120);
+  assert.equal(r.sharp, 260);
+  assert.deepEqual(combineMeasures([]), { bright: null, sharp: null });
 });
 
 // ---- まとめの判定(手のひら・甲) ----

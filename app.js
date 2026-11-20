@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, TIPS, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -9,7 +9,7 @@ const overlay = $("overlay");
 const octx = overlay.getContext("2d");
 const stage = $("stage");
 
-const PATCH = 160;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)
+const PATCH = 96;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)。場所は、数か所(patchCenters)
 const sample = document.createElement("canvas");
 sample.width = PATCH;
 sample.height = PATCH;
@@ -33,6 +33,7 @@ const state = {
   frameCount: 0,
   bright: null,
   sharp: null,
+  sharps: [],              // 場所ごとの、くっきり度(確認用の数字に、出す)
   captured: false,
   blob: null,
   filename: "",
@@ -113,17 +114,14 @@ function stopCamera() {
 
 // ---- 画素の数字(手のあたりの、明るさと、くっきり度) ----
 function measureImage(lm, vw, vh) {
-  let cx = 0.5, cy = 0.5;
-  if (lm) {
-    const idx = state.mode.startsWith("tip") ? TIPS.slice(1) : [0, 5, 9, 13, 17];   // 指先は、指先の中心。手は、手のひらの中心
-    cx = idx.reduce((s, i) => s + lm[i].x, 0) / idx.length;
-    cy = idx.reduce((s, i) => s + lm[i].y, 0) / idx.length;
-  }
-  const sx = Math.max(0, Math.min(vw - PATCH, Math.round(cx * vw - PATCH / 2)));
-  const sy = Math.max(0, Math.min(vh - PATCH, Math.round(cy * vh - PATCH / 2)));
-  sctx.drawImage(video, sx, sy, PATCH, PATCH, 0, 0, PATCH, PATCH);
-  const rgba = sctx.getImageData(0, 0, PATCH, PATCH).data;
-  return { bright: meanLuma(rgba), sharp: sharpness(toGray(rgba), PATCH, PATCH) };
+  const list = patchCenters(lm, state.mode).map((c) => {
+    const sx = Math.max(0, Math.min(vw - PATCH, Math.round(c.x * vw - PATCH / 2)));
+    const sy = Math.max(0, Math.min(vh - PATCH, Math.round(c.y * vh - PATCH / 2)));
+    sctx.drawImage(video, sx, sy, PATCH, PATCH, 0, 0, PATCH, PATCH);
+    const rgba = sctx.getImageData(0, 0, PATCH, PATCH).data;
+    return { bright: meanLuma(rgba), sharp: sharpness(toGray(rgba), PATCH, PATCH) };
+  });
+  return { ...combineMeasures(list), sharps: list.map((m) => Math.round(m.sharp)) };
 }
 
 // ---- 手の点を、重ねて描く ----
@@ -162,6 +160,7 @@ function loop() {
     const m = measureImage(lm, vw, vh);
     state.bright = m.bright;
     state.sharp = m.sharp;
+    state.sharps = m.sharps;
   }
 
   if (lm) {
@@ -178,7 +177,7 @@ function loop() {
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.guide, r.allOk);
-  if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify(r.numbers, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
+  if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready) capture("auto");
 }
 

@@ -156,6 +156,29 @@ export function sharpness(gray, w, h) {
   return sum2 / n - mean * mean;
 }
 
+// 明るさと、くっきり度を、測る場所(中心の点。0〜1)。 なめらかな皮膚だけだと、ピントが合っていても、数字が、低く出る。
+//   そこで、模様や、輪郭が出やすい場所(指の関節のまわり、指先)を、いくつか選んで、いちばんくっきりした場所の、数字を、使う。
+//   手のひら / 甲: 手の中心、4本の指の第2関節、親指の第1関節。 指先(5本): 5本の指先。 指先(1本): 画面の中心に、いちばん近い指先。
+export function patchCenters(lm, mode) {
+  if (!lm) return [{ x: 0.5, y: 0.5 }];   // 手が無い時は、画面の中心(明るさだけ、見る)
+  const at = (i) => ({ x: lm[i].x, y: lm[i].y });
+  if (mode === "tip5") return TIPS.map(at);
+  if (mode === "tip1") {
+    let best = TIPS[0], bd = Infinity;
+    for (const i of TIPS) { const d = Math.hypot(lm[i].x - 0.5, lm[i].y - 0.5); if (d < bd) { bd = d; best = i; } }
+    return [at(best)];
+  }
+  const palm = [0, 5, 9, 13, 17];
+  const center = { x: palm.reduce((s, i) => s + lm[i].x, 0) / palm.length, y: palm.reduce((s, i) => s + lm[i].y, 0) / palm.length };
+  return [center, at(6), at(10), at(14), at(18), at(3)];
+}
+
+// 複数の場所の数字から、使う数字を決める: 明るさは、平均。くっきり度は、いちばん高い場所
+export function combineMeasures(list) {
+  if (list.length === 0) return { bright: null, sharp: null };
+  return { bright: list.reduce((s, m) => s + m.bright, 0) / list.length, sharp: Math.max(...list.map((m) => m.sharp)) };
+}
+
 // ---- 撮り方(モード)ごとの、チェック項目と、ガイドの文 ----
 export const MODES = {
   palm: { label: "手のひら", help: "指を開いて、手のひら側を、カメラに向けます。" },
