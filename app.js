@@ -9,6 +9,10 @@ const overlay = $("overlay");
 const octx = overlay.getContext("2d");
 const stage = $("stage");
 
+// 撮影(自動の撮影と、「撮影」ボタン)は、いまは、オフ(判定の調整のため。撮ると、画面が、撮影後の画面に、切り替わって、検出が、止まるので)。
+//   アドレスの末尾に ?capture=1 を付けて開くと、オンに戻る。
+const CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("capture") === "1";
+
 const PATCH = 96;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)。場所は、数か所(patchCenters)
 const sample = document.createElement("canvas");
 sample.width = PATCH;
@@ -177,9 +181,10 @@ function loop() {
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
-  setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.guide, r.allOk);
+  const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
+  setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
-  if (state.hold.ready) capture("auto");
+  if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
 
 // ---- 撮影と保存 ----
@@ -250,6 +255,7 @@ $("save").addEventListener("click", savePhoto);
 $("again").addEventListener("click", again);
 
 // ---- 起動 ----
+if (!CAPTURE_ENABLED) $("shoot").hidden = true;   // 撮影が、オフの間は、「撮影」ボタンも、隠す
 if (window.matchMedia && window.matchMedia("(min-width: 900px)").matches) $("numbers").open = true;   // 広い画面(PC)では、確認用の数字を、手と一緒に見られるよう、はじめから、開いておく
 renderModeHelp();
 startCamera();

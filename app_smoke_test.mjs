@@ -93,7 +93,7 @@ try {
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
 
   // ---- B. 人工の手 ----
-  await load("?fake=1");
+  await load("?fake=1&capture=1");   // 撮影は、既定では、オフ。この試験は、撮影の流れも、確かめるので、オンにして開く
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備", 20000);
   const V = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
   const setHand = (opts) => { const { world, ...o } = opts; const hnd = makeHand({ ...o, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label, world: world ? makeWorld({ hand: o.hand, facing: o.facing, ...world }) : null })}; true`); };
@@ -164,6 +164,21 @@ try {
   check("B12 「1本ずつ」に切り替わる(説明が、変わる)", /撮りたい指/.test(await text("#mode-help")), await text("#mode-help"));
   await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
   check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
+
+  // 撮影が、オフの時(既定): 条件がそろっても、撮らない。検出は、続く。「撮影」ボタンも、無い
+  await load("?fake=1");
+  await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オフ)", 20000);
+  check("B21 撮影がオフの時は、「撮影」ボタンが、隠れている", await ev(`document.getElementById("shoot").hidden`));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8 });
+  await waitGuide("そろいました(撮影は、いまは、オフです)");
+  await sleep(2500);
+  check("B22 条件が、全部そろっても、撮らない(結果の画面は、出ない)。枠は、緑のまま、検出が、続く(手を変えると、ガイドが、変わる)", (await ev(`document.getElementById("result").hidden`)) && (await ev(`document.getElementById("stage").classList.contains("ok")`)));
+  await setHand({ hand: "right", facing: "back", scale: 0.8 });
+  await waitGuide("手のひらを、カメラに、向けてください");
+  check("B23 そのあとも、検出が、続いている(手の甲に変えると、ガイドが、変わる)", true);
+  await setHand({ hand: "right", facing: "palm", scale: 0.8 });
+  await load("?fake=1&capture=1");
+  await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オン)", 20000);
 
   // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
   const place = () => ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; }; return { stage: r("stage"), checks: r("checks"), numbers: r("numbers-text"), open: document.getElementById("numbers").open, vw: window.innerWidth }; })()`);
