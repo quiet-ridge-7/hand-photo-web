@@ -119,7 +119,11 @@ try {
   await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 20, tilt: -10 } });
   await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
   const nums = JSON.parse(await text("#numbers-text"));
-  check("B3b 3次元の点を渡すと、「確認用の数字」に、点すべての面の pan・tilt・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt 10 の大きさ)", Math.abs(Math.abs(nums.pan) - 20) < 1 && Math.abs(Math.abs(nums.tilt) - 10) < 1 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1 && nums.rms !== undefined, JSON.stringify(nums));
+  check("B3b 3次元の点を渡すと、「確認用の数字」に、手の点すべてからの pan・tilt・roll・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt -10、roll 0)", Math.abs(nums.pan - 20) < 1.5 && Math.abs(nums.tilt + 10) < 1.5 && Math.abs(nums.roll) < 1.5 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1.5 && nums.rms !== undefined, JSON.stringify(nums));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 0, tilt: 0, roll: 35 } });
+  await waitFor(`Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).roll - 35) < 2`, "roll の数字", 8000);
+  const nums2 = JSON.parse(await text("#numbers-text"));
+  check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - 35) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });

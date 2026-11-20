@@ -45,18 +45,24 @@ export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread 
 }
 
 
-// 3次元の手(MediaPipe の worldLandmarks の代わり。単位: メートル)。 pan: 左右のひねり(度)、tilt: 前後の倒れ(度)。 0 = カメラに、まっすぐ。
-//   向き: x は右、y は下、z は奥(カメラから、遠ざかる向き)。 手のひら(右手)がカメラに向いている時の、法線は、手前(-z)。
-export function makeWorld({ hand = "right", facing = "palm", spread = 12, pan = 0, tilt = 0 } = {}) {
+// 3次元の手(MediaPipe の worldLandmarks の代わり。単位: メートル)。平らな手を、回して、作る。
+//   pan(縦の軸)、tilt(横の軸)、roll(視線の軸)は、度。 0 = カメラに、まっすぐ向いて、指が、真上。 回す順番は、guide.mjs の framePose と、同じ(R = Ry(pan) Rx(tilt) Rz(roll))。
+//   座標の向き(MediaPipe と、同じ): x は右、y は下、z は奥(カメラから、遠ざかる向き)。 計算は、カメラ基準(X 右、Y 上、Z 手前)で、行い、戻す。
+export function makeWorld({ hand = "right", facing = "palm", spread = 12, pan = 0, tilt = 0, roll = 0 } = {}) {
   const pts = canonicalPts(spread, null);
   const flipX = (hand === "left") !== (facing === "back");
-  const p = (pan * Math.PI) / 180, t = (tilt * Math.PI) / 180;
+  const rad = (d) => (d * Math.PI) / 180;
+  const a = rad(pan), b = rad(tilt), c = rad(roll);
+  const Ry = [[Math.cos(a), 0, Math.sin(a)], [0, 1, 0], [-Math.sin(a), 0, Math.cos(a)]];
+  const Rx = [[1, 0, 0], [0, Math.cos(b), -Math.sin(b)], [0, Math.sin(b), Math.cos(b)]];
+  const Rz = [[Math.cos(c), -Math.sin(c), 0], [Math.sin(c), Math.cos(c), 0], [0, 0, 1]];
+  const mul = (A, B) => A.map((row, i) => [0, 1, 2].map((j) => row[0] * B[0][j] + row[1] * B[1][j] + row[2] * B[2][j]));
+  const R = mul(Ry, mul(Rx, Rz));
   return pts.map((q) => {
-    let x = (flipX ? -q.x : q.x) * 0.2, y = q.y * 0.2, z = 0;   // 手の長さ 約15cm
-    // y 軸まわりに、pan 回す
-    let x1 = x * Math.cos(p) + z * Math.sin(p), z1 = -x * Math.sin(p) + z * Math.cos(p);
-    // x 軸まわりに、tilt 回す
-    const y2 = y * Math.cos(t) - z1 * Math.sin(t), z2 = y * Math.sin(t) + z1 * Math.cos(t);
-    return { x: x1, y: y2, z: z2 };
+    const v = [(flipX ? -q.x : q.x) * 0.2, -q.y * 0.2, 0];   // 手の長さ 約15cm。カメラ基準(X 右、Y 上、Z 手前)
+    const X = R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2];
+    const Y = R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2];
+    const Z = R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2];
+    return { x: X, y: -Y, z: -Z };
   });
 }

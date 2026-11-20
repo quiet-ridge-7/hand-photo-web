@@ -124,29 +124,72 @@ export function eigenSym3(m) {
   return { values: [A[0][0], A[1][1], A[2][2]], vectors: [0, 1, 2].map((j) => ({ x: V[0][j], y: V[1][j], z: V[2][j] })) };
 }
 
-// 手の点(3次元。メートル)すべてに、いちばんよく合う、平らな面を、あてはめて、その向きの、カメラに対する角度を出す。
-//   戻り値: { pan, tilt, angle(度), rms(あてはまりの悪さ = 面からの、ずれの、二乗平均の平方根。ミリメートル) } | null
-//   使う点: 21個すべて(points を渡せば、その点だけ)。 面の法線は、手前(カメラ側 = -z)に、向けて、符号を決める。
-//   手の点は、指を曲げたり、開いたりすると、平らではなくなる。その時は、rms が、大きくなる。
-export function handAngles(world, points = null) {
+// ---- 手の向き(pan / tilt / roll)----
+// 小さな、ベクトルの部品
+const vAdd = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+const vSub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+const vDot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const vCross = (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+const vScale = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
+const vNorm = (a) => { const l = Math.hypot(a.x, a.y, a.z); return l < 1e-12 ? null : vScale(a, 1 / l); };
+
+// 手の、座標軸(3方向)を、手の点21個(worldLandmarks。メートル)すべてから、作る。
+//   座標は、カメラ基準に、直す: X = 右、Y = 上、Z = 手前(見ている人の側)。 (MediaPipe は、x = 右、y = 下、z = 奥)
+//   ez(手のひら / 甲の、向き)= 21点に、いちばんよく合う面の、法線。 手前向き(+Z)に、そろえる。
+//   ey(指の、向き)= 手首から、4本の指の付け根の、平均への向き(手のひらの、中で、かたい部分)。 面の中に、直す。
+//   ex(手の、幅の向き)= ey × ez(右手系)。
+//   戻り値: { ex, ey, ez, rms(あてはまりの悪さ。ミリメートル) } | null
+//   手が、カメラに、まっすぐ向いていて、指が、上向きなら、ex = X、ey = Y、ez = Z(= 0度)になる。左右・手のひら / 甲に、よらない。
+export function handFrame(world) {
   if (!world || world.length < 21) return null;
-  const pts = (points ?? world.map((_, i) => i)).map((i) => world[i]);
-  if (pts.length < 3 || !pts.every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
-  const n = pts.length;
-  const m = { x: pts.reduce((s, q) => s + q.x, 0) / n, y: pts.reduce((s, q) => s + q.y, 0) / n, z: pts.reduce((s, q) => s + q.z, 0) / n };
+  if (!world.every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
+  const P = world.map((q) => ({ x: q.x, y: -q.y, z: -q.z }));
+  const n = P.length;
+  const m = vScale(P.reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / n);
   const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  for (const q of pts) {
+  for (const q of P) {
     const d = [q.x - m.x, q.y - m.y, q.z - m.z];
-    for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) C[a][b] += (d[a] * d[b]) / n;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] += (d[i] * d[j]) / n;
   }
   const { values, vectors } = eigenSym3(C);
+  if (values[0] + values[1] + values[2] < 1e-18) return null;
   let k = 0;
   for (let i = 1; i < 3; i++) if (values[i] < values[k]) k = i;
-  if (values[0] + values[1] + values[2] < 1e-18) return null;
-  let v = vectors[k];
-  if (v.z > 0) v = { x: -v.x, y: -v.y, z: -v.z };
+  let ez = vNorm(vectors[k]);
+  if (!ez) return null;
+  if (ez.z < 0) ez = vScale(ez, -1);
+  const mcp = vScale([5, 9, 13, 17].map((i) => P[i]).reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / 4);
+  let d = vSub(mcp, P[0]);
+  d = vSub(d, vScale(ez, vDot(d, ez)));
+  const ey = vNorm(d);
+  if (!ey) return null;
+  const ex = vCross(ey, ez);
+  return { ex, ey, ez, rms: Math.sqrt(Math.max(0, values[k])) * 1000 };
+}
+
+// 手の軸から、3つの角度(度)を、出す。 回転の順番: pan(縦の軸)→ tilt(横の軸)→ roll(視線の軸)。 0 = 手のひらが、カメラに、まっすぐ向いて、指が、真上。
+//   pan: 手のひらの向きが、画面の右へ、ひねられると、プラス(カメラの映像の、右。前面カメラの鏡のような、表示では、逆に見える)
+//   tilt: 指先が、カメラに、近づく方に、倒れると、プラス
+//   roll: 手が、画面の中で、反時計回りに、回ると、プラス(カメラの映像で、見て)
+//   angle: 手のひらの面の、カメラの視線からの、ずれ(pan と tilt を、合わせた大きさ)
+export function framePose(f) {
+  if (!f) return null;
   const deg = (r) => (r * 180) / Math.PI;
-  return { pan: deg(Math.atan2(v.x, -v.z)), tilt: deg(Math.atan2(v.y, -v.z)), angle: deg(Math.acos(Math.min(1, -v.z))), rms: Math.sqrt(Math.max(0, values[k])) * 1000 };
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
+  return { pan: deg(Math.atan2(f.ez.x, f.ez.z)), tilt: deg(Math.asin(clamp(-f.ez.y))), roll: deg(Math.atan2(f.ex.y, f.ey.y)), angle: deg(Math.acos(clamp(f.ez.z))), rms: f.rms };
+}
+
+// 直近の、何コマかの、手の軸を、平均して、ゆれを、ならす(奥行きの推定の、ゆれ対策)。 frames: handFrame の戻り値の、配列(古い順)
+export function smoothFrame(frames) {
+  const list = frames.filter(Boolean);
+  if (list.length === 0) return null;
+  const avg = (key) => vScale(list.reduce((s, f) => vAdd(s, f[key]), { x: 0, y: 0, z: 0 }), 1 / list.length);
+  const ez = vNorm(avg("ez"));
+  if (!ez) return null;
+  const e = avg("ey");
+  const ey = vNorm(vSub(e, vScale(ez, vDot(e, ez))));
+  if (!ey) return null;
+  return { ex: vCross(ey, ez), ey, ez, rms: list[list.length - 1].rms };
 }
 
 // 手のひらの、傾き: 幅(人差し指と小指の付け根) ÷ 高さ(手首と中指の付け根)。傾くと、小さくなる
@@ -269,6 +312,7 @@ export function checkList(mode) {
 //   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
 export function evaluate(input) {
   const { mode, landmarks: lm, label, frame, motion, brightness, sharp, world } = input;
+  const pose = input.pose ?? (world ? framePose(handFrame(world)) : null);   // 手の向き(pan / tilt / roll)。アプリは、直近の数コマを、ならした物を、渡す
   const list = checkList(mode);
   const numbers = {};
   const msgs = {};   // id → 直す、ガイドの文(ok の時は、無い)
@@ -280,11 +324,11 @@ export function evaluate(input) {
   if (lm) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
-    // 手の面の、カメラに対する、角度(確認用の数字だけ。まだ、判定には、使わない)
-    //   pan / tilt / angle / rms: 手の点21個すべてに、あてはめた面。  pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
-    const all = handAngles(world), three = palmAngles(world);
+    // 手の向き(確認用の数字だけ。まだ、判定には、使わない)
+    //   pan / tilt / roll / angle / rms: 手の点21個すべてから、作った、手の軸(直近の数コマを、ならした物)。 pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
+    const three = palmAngles(world);
     const r1 = (v) => Math.round(v * 10) / 10;
-    if (all) { numbers.pan = r1(all.pan); numbers.tilt = r1(all.tilt); numbers.angle = r1(all.angle); numbers.rms = r1(all.rms); }
+    if (pose) { numbers.pan = r1(pose.pan); numbers.tilt = r1(pose.tilt); numbers.roll = r1(pose.roll); numbers.angle = r1(pose.angle); numbers.rms = r1(pose.rms); }
     if (three) { numbers.pan3 = r1(three.pan); numbers.tilt3 = r1(three.tilt); numbers.angle3 = r1(three.angle); }
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");

@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -13,6 +13,7 @@ const stage = $("stage");
 //   アドレスの末尾に ?capture=1 を付けて開くと、オンに戻る。
 const CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("capture") === "1";
 
+const SMOOTH_FRAMES = 5;   // 手の向きを、ならす、コマ数
 const PATCH = 96;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)。場所は、数か所(patchCenters)
 const sample = document.createElement("canvas");
 sample.width = PATCH;
@@ -32,6 +33,7 @@ const state = {
   stream: null,
   landmarker: null,
   history: [],             // 動きを見るための、点の記録
+  frames: [],              // 手の向き(軸)の、直近の記録(ゆれを、ならすため)
   hold: { since: null, progress: 0, ready: false },
   lastVideoTime: -1,
   frameCount: 0,
@@ -67,6 +69,7 @@ function setMode(mode) {
   state.mode = mode;
   state.hold = { since: null, progress: 0, ready: false };
   state.history = [];
+  state.frames = [];
   renderModeHelp();
   renderChecks([]);
 }
@@ -176,7 +179,17 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world });
+  // 手の向き(pan / tilt / roll): 3次元の点21個から、手の軸を作り、直近の数コマを、ならして、出す
+  let pose = null;
+  const f3 = world ? handFrame(world) : null;
+  if (f3) {
+    state.frames.push(f3);
+    while (state.frames.length > SMOOTH_FRAMES) state.frames.shift();
+    pose = framePose(smoothFrame(state.frames));
+  } else {
+    state.frames = [];
+  }
+  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
   drawHand(lm, r.allOk);
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
