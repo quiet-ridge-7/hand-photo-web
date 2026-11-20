@@ -34,7 +34,7 @@ export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread 
     ox = cx * frame.w - (Math.min(...xs) + Math.max(...xs)) / 2; oy = cy * frame.h - (Math.min(...ys) + Math.max(...ys)) / 2;
   }
   const lm = px.map((p) => ({ x: (p.x + ox) / frame.w, y: (p.y + oy) / frame.h, z: 0 }));
-  const label = hand === "right" ? "Left" : "Right";   // 鏡に映していない映像では、モデルの左右は、逆に出る
+  const label = hand === "right" ? "Right" : "Left";   // モデルの、手の左右のラベル(RAW_FRAME = false の前提: 本当の手の、左右と、同じ)
   return { lm, label };
 }
 

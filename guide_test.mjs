@@ -1,6 +1,6 @@
 // guide_test.mjs — guide.mjs(手の撮影の、判定とガイド)の、試験。人工の手の点(21個)を、プログラムで作って、確かめる。
 //   実行: node guide_test.mjs
-//   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめる(RAW_FRAME で、入れ替えられる)。
+//   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
   meanLuma, toGray, sharpness, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
@@ -30,9 +30,9 @@ test("手のひらか、甲か: 縦長の映像でも、同じ", () => {
     assert.equal(facingOf(h.lm, h.label, PORTRAIT).facing, facing);
   }
 });
-test("RAW_FRAME を false にすると、左右が、入れ替わって、手のひらと甲が、逆になる(実機で、逆に出た時の、直し方)", () => {
+test("RAW_FRAME を true にすると、左右が、入れ替わって、手のひらと甲が、逆になる(実機で、逆に出た時の、直し方)", () => {
   const h = makeHand({ hand: "right", facing: "palm" });
-  assert.equal(facingOf(h.lm, h.label, FRAME, false).facing, "back");
+  assert.equal(facingOf(h.lm, h.label, FRAME, true).facing, "back");
 });
 
 // ---- 大きさ・位置・形 ----

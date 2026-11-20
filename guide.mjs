@@ -24,10 +24,11 @@ export const T = {
   holdMs: 1000,        // すべて、そろった状態が、これだけ続いたら、撮る
 };
 
-// 左右のラベルについて: MediaPipe の、手の左右は、「鏡に映した(自撮りの)映像」を、前提に、出される。
-//   ここでは、「映像の元の向き(鏡に映していない)」を、渡すので、左右を、入れ替えて、本当の手にする。
-//   実機で、手のひら / 手の甲が、逆に出る時は、これを false にする。
-export const RAW_FRAME = true;
+// 左右のラベルについて: 手の左右(Left / Right)は、モデルが、映像の見た目から、出す。
+//   当初は、「鏡に映した(自撮りの)映像を、前提に、出る → 元の向きの映像では、左右を、入れ替える」と、考えて、true にしていた(MediaPipe の、古い資料の説明)。
+//   実機(2026-11-20)で、手のひらと甲が、逆に出たので、入れ替えない(false)に、直した。
+//   true にすると、左右が、入れ替わる(手のひらと甲が、逆になる)。
+export const RAW_FRAME = false;
 
 // ---- 手の点の、番号 ----
 export const LM = { WRIST: 0, THUMB_TIP: 4, INDEX_MCP: 5, INDEX_PIP: 6, INDEX_DIP: 7, INDEX_TIP: 8, MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_DIP: 11, MIDDLE_TIP: 12, RING_MCP: 13, RING_PIP: 14, RING_DIP: 15, RING_TIP: 16, PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20 };
