@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -132,7 +132,7 @@ function measureImage(lm, vw, vh) {
 }
 
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok) {
+function drawHand(lm, ok, arrow = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
@@ -144,6 +144,39 @@ function drawHand(lm, ok) {
   octx.fillStyle = ok ? "#4cc38a" : "#f0b429";
   const r = Math.max(3, w / 200);
   for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
+  if (arrow) drawNormal(arrow, w);
+}
+
+// 手のひら(甲)の、向き(法線)を、緑の矢印で、描く。 まっすぐ、カメラに向いていると、短く(中心の、丸だけ)、傾くと、傾いた向きへ、伸びる
+const NORMAL_GREEN = "#00ff55";
+function drawNormal(a, w) {
+  octx.save();
+  octx.strokeStyle = NORMAL_GREEN;
+  octx.fillStyle = NORMAL_GREEN;
+  octx.lineWidth = Math.max(3, w / 220);
+  octx.lineCap = "round";
+  const dot = Math.max(5, w / 110);
+  octx.beginPath();
+  octx.arc(a.from.x, a.from.y, dot, 0, Math.PI * 2);   // 手のひらの中心
+  octx.fill();
+  if (a.length > dot * 1.5) {
+    octx.beginPath();
+    octx.moveTo(a.from.x, a.from.y);
+    octx.lineTo(a.to.x, a.to.y);
+    octx.stroke();
+    const ang = Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x), head = Math.max(10, w / 70);   // 矢じり
+    octx.beginPath();
+    octx.moveTo(a.to.x, a.to.y);
+    octx.lineTo(a.to.x - head * Math.cos(ang - 0.45), a.to.y - head * Math.sin(ang - 0.45));
+    octx.moveTo(a.to.x, a.to.y);
+    octx.lineTo(a.to.x - head * Math.cos(ang + 0.45), a.to.y - head * Math.sin(ang + 0.45));
+    octx.stroke();
+  } else {
+    octx.beginPath();
+    octx.arc(a.from.x, a.from.y, dot * 2.2, 0, Math.PI * 2);   // ほぼ、まっすぐ(手前向き)の時は、外側に、輪を描く
+    octx.stroke();
+  }
+  octx.restore();
 }
 
 // ---- 毎コマの処理 ----
@@ -180,17 +213,18 @@ function loop() {
   const motion = lm ? motionScore(state.history, frame) : null;
 
   // 手の向き(pan / tilt / roll): 3次元の点21個から、手の軸を作り、直近の数コマを、ならして、出す
-  let pose = null;
+  let pose = null, smoothed = null;
   const f3 = world ? handFrame(world) : null;
   if (f3) {
     state.frames.push(f3);
     while (state.frames.length > SMOOTH_FRAMES) state.frames.shift();
-    pose = framePose(smoothFrame(state.frames));
+    smoothed = smoothFrame(state.frames);
+    pose = framePose(smoothed);
   } else {
     state.frames = [];
   }
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
-  drawHand(lm, r.allOk);
+  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame));   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;

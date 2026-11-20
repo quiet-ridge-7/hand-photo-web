@@ -125,6 +125,16 @@ try {
   const nums2 = JSON.parse(await text("#numbers-text"));
   check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - 35) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
 
+  // 法線の矢印(緑): pan 30度で、手のひらの中心から、右へ伸びる。まっすぐなら、中心の丸だけ
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 30, tilt: 0, roll: 0 } });
+  await sleep(600);
+  const greenAt = (xFrac) => ev(`(() => { const c = document.getElementById("overlay"); const x = Math.round(c.width * ${xFrac}), y = Math.round(c.height * 0.5); const d = c.getContext("2d").getImageData(Math.max(0, x - 40), Math.max(0, y - 60), 80, 120).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 80 && d[i + 1] > 200 && d[i + 2] < 120 && d[i + 3] > 200) n++; return n; })()`);
+  const tipGreen = await greenAt(0.62);
+  check("B3d pan 30度のとき、手のひらの中心から、右へ、緑の矢印が、伸びる(中心の右側に、緑の画素)", tipGreen > 20, String(tipGreen));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 0, tilt: 0, roll: 0 } });
+  await sleep(700);
+  check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
+
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });
   let gotResult = true;

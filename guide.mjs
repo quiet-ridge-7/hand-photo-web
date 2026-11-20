@@ -179,6 +179,17 @@ export function framePose(f) {
   return { pan: deg(Math.atan2(f.ez.x, f.ez.z)), tilt: deg(Math.asin(clamp(-f.ez.y))), roll: deg(Math.atan2(f.ex.y, f.ey.y)), angle: deg(Math.acos(clamp(f.ez.z))), rms: f.rms };
 }
 
+// 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 手のひらの中心(手首と、4本の指の付け根の、平均)から、法線の、画面の向きへ。
+//   手前(カメラ側)を、向いているほど、短い(点に近い)。 30度で、画面の短い辺 × k × 0.5 の長さ。
+//   lm: 画面の中の位置(0〜1)。 f: handFrame / smoothFrame の戻り値。 frame: { w, h }(画素)。 戻り値(画素): { from, to, length } | null
+export function normalArrow(lm, f, frame, k = 0.5) {
+  if (!lm || !f) return null;
+  const idx = [0, 5, 9, 13, 17];
+  const cx = (idx.reduce((s, i) => s + lm[i].x, 0) / idx.length) * frame.w, cy = (idx.reduce((s, i) => s + lm[i].y, 0) / idx.length) * frame.h;
+  const L = Math.min(frame.w, frame.h) * k;
+  return { from: { x: cx, y: cy }, to: { x: cx + f.ez.x * L, y: cy - f.ez.y * L }, length: Math.hypot(f.ez.x, f.ez.y) * L };   // 画面は、下向きが +y。 ez は Y が上向き
+}
+
 // 直近の、何コマかの、手の軸を、平均して、ゆれを、ならす(奥行きの推定の、ゆれ対策)。 frames: handFrame の戻り値の、配列(古い順)
 export function smoothFrame(frames) {
   const list = frames.filter(Boolean);

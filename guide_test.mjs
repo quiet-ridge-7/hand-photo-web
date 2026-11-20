@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -201,6 +201,29 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
   assert.equal(handFrame([]), null);
   assert.equal(handFrame(makeWorld({}).map(() => ({ x: 0, y: 0, z: 0 }))), null);
   assert.equal(framePose(null), null);
+});
+
+// ---- 法線の矢印 ----
+test("法線の矢印: まっすぐは、ほぼ点(長さ 0)。pan +30度は、右へ。pan -30度は、左へ。tilt +30度(指先が、手前)は、下へ。長さは、短い辺 × 0.5 × sin(30度)", () => {
+  const hand = makeHand({ facing: "palm" });
+  const arrowOf = (opts) => normalArrow(hand.lm, handFrame(makeWorld({ facing: "palm", ...opts })), FRAME);
+  const straight = arrowOf({});
+  assert.ok(straight.length < 0.5, String(straight.length));
+  const right = arrowOf({ pan: 30 }), left = arrowOf({ pan: -30 });
+  const L = Math.min(FRAME.w, FRAME.h) * 0.5;
+  assert.ok(right.to.x > right.from.x && near(right.to.y, right.from.y, 0.5) && near(right.length, L * Math.sin((30 * Math.PI) / 180), 0.5), JSON.stringify(right));
+  assert.ok(left.to.x < left.from.x && near(left.length, right.length, 0.5));
+  const down = arrowOf({ tilt: 30 }), up = arrowOf({ tilt: -30 });
+  assert.ok(down.to.y > down.from.y && near(down.to.x, down.from.x, 0.5) && up.to.y < up.from.y, JSON.stringify(down));
+  assert.ok(near(arrowOf({ roll: 40 }).length, 0, 0.5), "roll(画面の中で回す)では、矢印は、伸びない");
+});
+test("法線の矢印: 始点は、手のひらの中心(手首と、4本の指の付け根の、平均)。手や軸が、無ければ null", () => {
+  const hand = makeHand({});
+  const a = normalArrow(hand.lm, handFrame(makeWorld({})), FRAME);
+  const idx = [0, 5, 9, 13, 17];
+  assert.ok(near(a.from.x, (idx.reduce((s, i) => s + hand.lm[i].x, 0) / 5) * FRAME.w, 0.01) && near(a.from.y, (idx.reduce((s, i) => s + hand.lm[i].y, 0) / 5) * FRAME.h, 0.01));
+  assert.equal(normalArrow(null, handFrame(makeWorld({})), FRAME), null);
+  assert.equal(normalArrow(hand.lm, null, FRAME), null);
 });
 
 // ---- 測る場所 ----
