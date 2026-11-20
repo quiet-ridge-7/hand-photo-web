@@ -250,6 +250,7 @@ $("save").addEventListener("click", savePhoto);
 $("again").addEventListener("click", again);
 
 // ---- 起動 ----
+if (window.matchMedia && window.matchMedia("(min-width: 900px)").matches) $("numbers").open = true;   // 広い画面(PC)では、確認用の数字を、手と一緒に見られるよう、はじめから、開いておく
 renderModeHelp();
 startCamera();
 (async function boot() {

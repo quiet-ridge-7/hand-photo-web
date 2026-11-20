@@ -1,7 +1,8 @@
 :root { --bg: #0f172a; --panel: #1e293b; --line: #334155; --text: #e2e8f0; --sub: #94a3b8; --accent: #4f9cf9; --ok: #4cc38a; --warn: #f0b429; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", sans-serif; line-height: 1.6; }
-main { max-width: 640px; margin: 0 auto; padding: 16px; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+#modes, #tip-sub, #result, details#about { max-width: 640px; }
 h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .sub { color: var(--sub); font-size: 0.9rem; margin: 4px 0 12px; }
 .seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; background: var(--panel); border-radius: 10px; padding: 4px; margin-bottom: 8px; }
@@ -28,3 +29,14 @@ details { margin-top: 16px; background: var(--panel); border-radius: 10px; paddi
 summary { cursor: pointer; color: var(--sub); }
 details p { font-size: 0.9rem; color: var(--sub); }
 pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: var(--text); }
+
+/* 映像と、チェック・数字を、並べる(広い画面)。狭い画面は、1列 */
+#camera-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+#camera-view[hidden], #result[hidden] { display: none; }
+@media (min-width: 900px) {
+  #camera-view { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 20px; align-items: start; }
+  #video { max-height: 80vh; }
+  #right { position: sticky; top: 8px; }
+  #right details { margin-top: 12px; }
+  #numbers-text { max-height: 40vh; overflow: auto; font-family: ui-monospace, Consolas, monospace; }
+}

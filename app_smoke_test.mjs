@@ -165,6 +165,18 @@ try {
   await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
   check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
 
+  // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
+  const place = () => ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; }; return { stage: r("stage"), checks: r("checks"), numbers: r("numbers-text"), open: document.getElementById("numbers").open, vw: window.innerWidth }; })()`);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
+  let pl = await place();
+  check("B19 広い画面(1280)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ(映像と、同じ高さの範囲で、同時に見える)", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl.numbers.top < pl.stage.bottom, JSON.stringify({ s: [pl.stage.left, pl.stage.right, pl.stage.top, pl.stage.bottom], n: [pl.numbers.left, pl.numbers.top] }));
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await sleep(300);
+  pl = await place();
+  check("B20 狭い画面(390)では、1列(チェックが、映像の、下)。横に、はみ出さない", pl.checks.top >= pl.stage.bottom - 1 && (await ev(`document.documentElement.scrollWidth <= window.innerWidth + 1`)), JSON.stringify({ stageBottom: pl.stage.bottom, checksTop: pl.checks.top }));
+  await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
+
   // 手動の撮影
   await ev(`document.getElementById("shoot").click(); true`);
   await waitFor(`!document.getElementById("result").hidden`, "手動の撮影", 5000);
