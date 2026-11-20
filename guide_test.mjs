@@ -64,6 +64,12 @@ test("指の形: 開いた手は、4本とも伸びて、開きが、足りて�
   const curled = fingerShape(makeHand({ curl: 1 }).lm, FRAME);
   assert.ok(curled.extend[1] < T.extendRatio && curled.extend[0] >= T.extendRatio, JSON.stringify(curled.extend));
 });
+test("指の開き: ふつうに、ゆるく開いた手(開き 5度)は、OK。ほとんど閉じた手(開き 2度)は、まだ、足りない", () => {
+  const natural = run("palm", makeHand({ spread: 5 }));
+  assert.ok(natural.checks.find((c) => c.id === "open").ok, JSON.stringify(natural.numbers));
+  const nearlyClosed = run("palm", makeHand({ spread: 2 }));
+  assert.ok(!nearlyClosed.checks.find((c) => c.id === "open").ok);
+});
 test("指先の大きさ: 手を大きく写すと、大きくなる", () => {
   const a = tipSegments(makeHand({ scale: 0.8 }).lm, FRAME)[1], b = tipSegments(makeHand({ scale: 1.6 }).lm, FRAME)[1];
   assert.ok(b > a * 1.9);
