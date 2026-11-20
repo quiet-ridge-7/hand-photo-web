@@ -113,7 +113,7 @@ try {
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
   await waitGuide("中指を、まっすぐ、伸ばしてください");
   await setHand({ hand: "right", facing: "palm", scale: 0.8, spread: 0 });
-  await waitGuide("人差し指と中指を、もう少し、開いてください");
+  await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)

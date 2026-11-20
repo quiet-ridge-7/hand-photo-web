@@ -11,8 +11,8 @@ export const T = {
   centerTol: 0.25,     // 手の中心が、画面の中心から、この割合(画面の幅・高さに対して)より外れると、「中央に」
   flatMin: 0.45,       // 手のひらの幅 ÷ 高さ。これより小さいと、「傾いている」(カメラに、まっすぐ向けていない)
   extendRatio: 1.12,   // 指が伸びている: (指先〜手首) ÷ (第2関節〜手首) が、これ以上
-  openGapMinDeg: 3,    // となり合う指の、開き(度)の、最小(ふつうに開いた手でも、中指と薬指の間は、3〜5度ほど。6度では、厳しすぎた)
-  openTotalMinDeg: 12, // 人差し指〜小指の、開きの合計(度)の、最小(28度では、厳しすぎた)
+  openGapMinDeg: 1.5,  // となり合う指の、開き(度)の、最小。「重なっていない」の目安。目的(皮膚・関節・爪)では、大きく開く必要は、ない(6度、3度では、厳しすぎた)
+  openTotalMinDeg: 0,  // 人差し指〜小指の、開きの合計(度)の、最小。0 = 見ない
   stillMax: 0.012,     // 動き(画面の対角に対する割合)。これ以下なら「止まっている」
   stillWindowMs: 400,  // 動きを見る、時間の幅
   brightMin: 60,       // 手のあたりの、明るさ(0〜255)。これより暗いと「暗い」
@@ -194,7 +194,7 @@ export function checkList(mode) {
   if (mode === "palm" || mode === "back") {
     return [...common, { id: "inside", label: "画面に入っている" }, { id: "size", label: "近さ" }, { id: "center", label: "中央" },
       { id: "facing", label: mode === "palm" ? "手のひら側" : "手の甲側" }, { id: "flat", label: "まっすぐ" },
-      { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が開いている" },
+      { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" },
       { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
   }
   return [...common, { id: "tipinside", label: "指先が画面に入っている" }, { id: "facing", label: "爪の側" }, { id: "tipsize", label: "近さ" },
@@ -246,8 +246,8 @@ export function evaluate(input) {
       if (!ok.extend) msgs.extend = FINGERS[bent].name + "を、まっすぐ、伸ばしてください";
       const narrow = shape.gaps.findIndex((g) => g < T.openGapMinDeg);
       ok.open = narrow < 0 && shape.total >= T.openTotalMinDeg;
-      if (narrow >= 0) msgs.open = FINGERS[narrow].name + "と" + FINGERS[narrow + 1].name + "を、もう少し、開いてください";
-      else if (!ok.open) msgs.open = "指を、もう少し、開いてください";
+      if (narrow >= 0) msgs.open = FINGERS[narrow].name + "と" + FINGERS[narrow + 1].name + "が、重なっています。少し、離してください";
+      else if (!ok.open) msgs.open = "指を、少し、離してください";
     } else {
       // 指先モード
       const segs = tipSegments(lm, frame);

@@ -60,15 +60,16 @@ test("指の形: 開いた手は、4本とも伸びて、開きが、足りて�
   assert.ok(open.extend.every((v) => v >= T.extendRatio), JSON.stringify(open.extend));
   assert.ok(open.gaps.every((g) => g >= T.openGapMinDeg) && open.total >= T.openTotalMinDeg, JSON.stringify(open));
   const closed = fingerShape(makeHand({ spread: 0 }).lm, FRAME);
-  assert.ok(closed.gaps.every((g) => g < T.openGapMinDeg) && closed.total < T.openTotalMinDeg);
+  assert.ok(closed.gaps.every((g) => g < T.openGapMinDeg));
   const curled = fingerShape(makeHand({ curl: 1 }).lm, FRAME);
   assert.ok(curled.extend[1] < T.extendRatio && curled.extend[0] >= T.extendRatio, JSON.stringify(curled.extend));
 });
-test("指の開き: ふつうに、ゆるく開いた手(開き 5度)は、OK。ほとんど閉じた手(開き 2度)は、まだ、足りない", () => {
-  const natural = run("palm", makeHand({ spread: 5 }));
-  assert.ok(natural.checks.find((c) => c.id === "open").ok, JSON.stringify(natural.numbers));
-  const nearlyClosed = run("palm", makeHand({ spread: 2 }));
-  assert.ok(!nearlyClosed.checks.find((c) => c.id === "open").ok);
+test("指の重なり: 大きく開いた手(12度)も、ゆるく開いた手(5度)も、少しだけ、離れた手(2度)も OK。ぴったり閉じた手(0度)は、重なっている", () => {
+  for (const spread of [12, 5, 2]) {
+    const r = run("palm", makeHand({ spread }));
+    assert.ok(r.checks.find((c) => c.id === "open").ok, spread + "度: " + JSON.stringify(r.numbers));
+  }
+  assert.ok(!run("palm", makeHand({ spread: 0 })).checks.find((c) => c.id === "open").ok);
 });
 test("指先の大きさ: 手を大きく写すと、大きくなる", () => {
   const a = tipSegments(makeHand({ scale: 0.8 }).lm, FRAME)[1], b = tipSegments(makeHand({ scale: 1.6 }).lm, FRAME)[1];
@@ -150,7 +151,7 @@ test("ガイド: 遠い / 近い / はみ出し / 中央から外れ / 傾き", 
 });
 test("ガイド: 指が曲がっている → 指の名前つき。指が閉じている → となり合う指の名前つき", () => {
   assert.equal(run("palm", makeHand({ curl: 1 })).guide, "中指を、まっすぐ、伸ばしてください");
-  assert.equal(run("palm", makeHand({ spread: 0 })).guide, "人差し指と中指を、もう少し、開いてください");
+  assert.equal(run("palm", makeHand({ spread: 0 })).guide, "人差し指と中指が、重なっています。少し、離してください");
 });
 test("ガイド: 暗い / 明るすぎる / 動いている / ぼやけている", () => {
   const h = makeHand();
