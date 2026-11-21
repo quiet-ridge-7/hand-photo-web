@@ -25,20 +25,14 @@ function canonicalPts(spread, curl) {
 //   hand: "right" | "left"(本当の手)  facing: "palm" | "back"(カメラに向いている側)  指は、上向き。
 //   scale: 手の大きさ(画面の短い辺に対する、手首〜中指の先の、長さの、おおよその割合)
 //   spread: となり合う指の、開き(度)  tilt: 手の幅の、縮み(1 = まっすぐ。小さいほど、傾いている)  curl: 曲げる指の番号(0〜3)
-//   cx, cy: 手の枠の、中心(0〜1)  tipsAt: { x, y } を、指定すると、5本の指先の、中心を、そこに置く
-export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread = 12, tilt = 1, curl = null, cx = 0.5, cy = 0.5, tipsAt = null, frame = FRAME } = {}) {
+//   cx, cy: 手の枠の、中心(0〜1)
+export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread = 12, tilt = 1, curl = null, cx = 0.5, cy = 0.5, frame = FRAME } = {}) {
   const pts = canonicalPts(spread, curl);
   const flipX = (hand === "left") !== (facing === "back");
   const S = scale * Math.min(frame.w, frame.h) / 0.74;
   let px = pts.map((p) => ({ x: (flipX ? -p.x : p.x) * tilt * S, y: p.y * S }));
-  let ox, oy;
-  if (tipsAt) {
-    const tips = [4, 8, 12, 16, 20].map((i) => px[i]);
-    ox = tipsAt.x * frame.w - tips.reduce((s, p) => s + p.x, 0) / 5; oy = tipsAt.y * frame.h - tips.reduce((s, p) => s + p.y, 0) / 5;
-  } else {
-    const xs = px.map((p) => p.x), ys = px.map((p) => p.y);
-    ox = cx * frame.w - (Math.min(...xs) + Math.max(...xs)) / 2; oy = cy * frame.h - (Math.min(...ys) + Math.max(...ys)) / 2;
-  }
+  const xs = px.map((p) => p.x), ys = px.map((p) => p.y);
+  const ox = cx * frame.w - (Math.min(...xs) + Math.max(...xs)) / 2, oy = cy * frame.h - (Math.min(...ys) + Math.max(...ys)) / 2;
   const lm = px.map((p) => ({ x: (p.x + ox) / frame.w, y: (p.y + oy) / frame.h, z: 0 }));
   const label = hand === "right" ? "Right" : "Left";   // モデルの、手の左右のラベル(RAW_FRAME = false の前提: 本当の手の、左右と、同じ)
   return { lm, label };

@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v14";
+export const VERSION = "v15";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -22,9 +22,6 @@ export const T = {
   brightMin: 60,       // 手のあたりの、明るさ(0〜255)。これより暗いと「暗い」
   brightMax: 225,      // これより明るいと「明るすぎる」
   sharpMin: 40,        // くっきり度(縮小した画像の、ラプラシアンの分散)。これより小さいと「ぼやけている」
-  tipSegMin: 0.075,    // 指先モード: 指先の大きさ((指先〜第一関節) ÷ 画面の短い辺)の、最小
-  tipSegMax: 0.30,     // 最大
-  tipCenterTol: 0.30,  // 指先モード: 指先の中心が、画面の中心から、外れてよい割合
   holdMs: 1000,        // すべて、そろった状態が、これだけ続いたら、撮る
 };
 
@@ -43,7 +40,6 @@ export const FINGERS = [
   { name: "薬指", mcp: 13, pip: 14, dip: 15, tip: 16 },
   { name: "小指", mcp: 17, pip: 18, dip: 19, tip: 20 },
 ];
-export const TIPS = [4, 8, 12, 16, 20];
 
 // ---- 小さな、計算の部品 ----
 const px = (p, f) => ({ x: p.x * f.w, y: p.y * f.h });   // 0〜1 の点を、画素の点に
@@ -222,12 +218,6 @@ export function fingerShape(lm, frame) {
   return { extend, gaps, total: angleBetween(dirs[0], dirs[3]) };
 }
 
-// 指先の大きさ: (指先〜第1関節) ÷ 画面の短い辺。5本の指先(親指も)
-export function tipSegments(lm, frame) {
-  const pairs = [[4, 3], [8, 7], [12, 11], [16, 15], [20, 19]];
-  return pairs.map(([tip, dip]) => dist(px(lm[tip], frame), px(lm[dip], frame)) / shortSide(frame));
-}
-
 // 動き: 直近の、時間の幅の中で、いまの点と、いちばん違う点までの、ずれ(画面の対角に対する割合)
 //   history: [{ t(ミリ秒), pts: [{x, y}...](いくつかの点) }]  新しい物が、後ろ
 export function motionScore(history, frame, windowMs = T.stillWindowMs) {
@@ -276,16 +266,10 @@ export function sharpness(gray, w, h) {
 
 // 明るさと、くっきり度を、測る場所(中心の点。0〜1)。 なめらかな皮膚だけだと、ピントが合っていても、数字が、低く出る。
 //   そこで、模様や、輪郭が出やすい場所(指の関節のまわり、指先)を、いくつか選んで、いちばんくっきりした場所の、数字を、使う。
-//   手のひら / 甲: 手の中心、4本の指の第2関節、親指の第1関節。 指先(5本): 5本の指先。 指先(1本): 画面の中心に、いちばん近い指先。
+//   手の中心、4本の指の第2関節、親指の第1関節。
 export function patchCenters(lm, mode) {
   if (!lm) return [{ x: 0.5, y: 0.5 }];   // 手が無い時は、画面の中心(明るさだけ、見る)
   const at = (i) => ({ x: lm[i].x, y: lm[i].y });
-  if (mode === "tip5") return TIPS.map(at);
-  if (mode === "tip1") {
-    let best = TIPS[0], bd = Infinity;
-    for (const i of TIPS) { const d = Math.hypot(lm[i].x - 0.5, lm[i].y - 0.5); if (d < bd) { bd = d; best = i; } }
-    return [at(best)];
-  }
   const palm = [0, 5, 9, 13, 17];
   const center = { x: palm.reduce((s, i) => s + lm[i].x, 0) / palm.length, y: palm.reduce((s, i) => s + lm[i].y, 0) / palm.length };
   return [center, at(6), at(10), at(14), at(18), at(3)];
@@ -297,14 +281,7 @@ export function combineMeasures(list) {
   return { bright: list.reduce((s, m) => s + m.bright, 0) / list.length, sharp: Math.max(...list.map((m) => m.sharp)) };
 }
 
-// ---- 撮り方(モード)ごとの、チェック項目と、ガイドの文 ----
-export const MODES = {
-  palm: { label: "手のひら", help: "指を開いて、手のひら側を、カメラに向けます。" },
-  back: { label: "手の甲", help: "指を開いて、手の甲側を、カメラに向けます。" },
-  tip5: { label: "指先(5本まとめて)", help: "爪が見える側(手の甲側)を向けて、指先を、カメラに近づけます。" },
-  tip1: { label: "指先(1本ずつ)", help: "撮りたい指の、指先を、画面の中央に、近づけます。" },
-};
-
+// ---- チェック項目と、ガイドの文 ----
 // チェック項目の、一覧(画面に出す、順番)。 id と、短い名前
 export function checkList(mode, wantHand = null) {
   const common = [{ id: "hand", label: "手が見えている" }];
@@ -315,8 +292,7 @@ export function checkList(mode, wantHand = null) {
       { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" },
       { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
   }
-  return [...common, { id: "tipinside", label: "指先が画面に入っている" }, { id: "facing", label: "爪の側" }, { id: "tipsize", label: "近さ" },
-    { id: "tipcenter", label: "中央" }, { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
+  return common;
 }
 
 // ---- 撮る順番(手のひら・手の甲 × 右手・左手) ----
@@ -370,9 +346,9 @@ export function evaluate(input) {
       if (!ok.side) msgs.side = (input.wantHand === "right" ? "右手" : "左手") + "を、映してください(いまは、" + (face.hand === "right" ? "右手" : "左手") + "です)";
     }
     const wantPalm = mode === "palm";
-    const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
+    const facingOk = face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;
-    if (!facingOk) msgs.facing = mode === "palm" ? "手のひらを、カメラに、向けてください" : mode === "back" ? "手の甲を、カメラに、向けてください" : "爪が見える側(手の甲)を、カメラに、向けてください";
+    if (!facingOk) msgs.facing = mode === "palm" ? "手のひらを、カメラに、向けてください" : "手の甲を、カメラに、向けてください";
 
     if (mode === "palm" || mode === "back") {
       ok.inside = insideFrame(lm);
@@ -400,30 +376,7 @@ export function evaluate(input) {
       ok.open = narrow < 0 && shape.total >= T.openTotalMinDeg;
       if (narrow >= 0) msgs.open = FINGERS[narrow].name + "と" + FINGERS[narrow + 1].name + "が、重なっています。少し、離してください";
       else if (!ok.open) msgs.open = "指を、少し、離してください";
-    } else {
-      // 指先モード
-      const segs = tipSegments(lm, frame);
-      numbers.seg = segs.map((v) => Math.round(v * 100) / 100);
-      const tips = TIPS.map((i) => lm[i]);
-      const inside = (p) => p.x >= T.edge && p.x <= 1 - T.edge && p.y >= T.edge && p.y <= 1 - T.edge;
-      let target = tips, targetSegs = segs;
-      if (mode === "tip1") {   // 画面の中心に、いちばん近い指先を、撮る相手にする
-        let best = 0, bd = Infinity;
-        tips.forEach((p, i) => { const d = Math.hypot(p.x - 0.5, p.y - 0.5); if (d < bd) { bd = d; best = i; } });
-        target = [tips[best]]; targetSegs = [segs[best]];
-        numbers.finger = ["親指", "人差し指", "中指", "薬指", "小指"][best];
-      }
-      ok.tipinside = target.every(inside);
-      if (!ok.tipinside) msgs.tipinside = "指先が、はみ出しています。画面の中に、入れてください";
-      const segMed = [...targetSegs].sort((a, b) => a - b)[Math.floor(targetSegs.length / 2)];
-      numbers.segMed = Math.round(segMed * 100) / 100;
-      ok.tipsize = segMed >= T.tipSegMin && segMed <= T.tipSegMax;
-      if (segMed < T.tipSegMin) msgs.tipsize = "もう少し、近づけてください";
-      else if (segMed > T.tipSegMax) msgs.tipsize = "少し、離してください";
-      const cx = target.reduce((s, p) => s + p.x, 0) / target.length - 0.5, cy = target.reduce((s, p) => s + p.y, 0) / target.length - 0.5;
-      numbers.center = [Math.round(cx * 100) / 100, Math.round(cy * 100) / 100];
-      ok.tipcenter = Math.abs(cx) <= T.tipCenterTol && Math.abs(cy) <= T.tipCenterTol;
-      if (!ok.tipcenter) msgs.tipcenter = mode === "tip1" ? "撮りたい指先を、画面の中央に、動かしてください" : "指先を、画面の中央に、動かしてください";
+
     }
   }
 

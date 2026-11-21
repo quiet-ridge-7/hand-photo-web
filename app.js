@@ -1,10 +1,10 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
-//   手のひら・手の甲は、右手 → 左手の順に、4つ(STEPS)を、自動で撮る。 指先は、別のモード(従来の、撮影後の画面)。
+//   手のひら・手の甲を、右手 → 左手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v14";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v15";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -12,10 +12,8 @@ const overlay = $("overlay");
 const octx = overlay.getContext("2d");
 const stage = $("stage");
 
-// 指先のモードの撮影(自動と、「撮影」ボタン)は、いまは、オフ(撮ると、撮影後の画面に、切り替わって、検出が、止まるので)。
-//   アドレスの末尾に ?capture=1 を付けて開くと、オンになる。 (手のひら・手の甲の、4つの撮影は、いつも、オン。 ?capture=0 で、オフ(試験用))
+// 4つの撮影は、いつも、オン。 アドレスの末尾に ?capture=0 を付けて開くと、自動の撮影も、「撮影」ボタンも、オフ(試験用)
 const params = new URLSearchParams(window.location.search);
-const CAPTURE_ENABLED = params.get("capture") === "1";
 const SEQ_CAPTURE = params.get("capture") !== "0";
 const COOLDOWN_MS = 2000;   // 1つ撮った後、次を、撮り始めるまでの、間
 
@@ -32,14 +30,12 @@ const CONNECTIONS = [
 ];
 
 const state = {
-  group: "seq",            // "seq"(手のひら・手の甲 × 右手・左手。4つ)| "tip"(指先)
   step: 0,                 // 4つのうち、次に撮る物の番号(全部、撮れたら -1)
   shots: STEPS.map(() => null),   // 撮れた写真: { blob, url, filename, w, h } | null
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   justMsg: "",
   capturing: false,
-  mode: "palm",            // 判定に使う、いまのモード: "palm" | "back" | "tip5" | "tip1"
-  tipSub: "tip5",
+  mode: "palm",            // 判定に使う、いまのモード: "palm" | "back"(次に撮る物の、モード)
   facingMode: window.matchMedia && window.matchMedia("(pointer: coarse)").matches ? "environment" : "user",   // スマホは、背面。PC は、前面
   stream: null,
   landmarker: null,
@@ -50,10 +46,6 @@ const state = {
   bright: null,
   sharp: null,
   sharps: [],              // 場所ごとの、くっきり度(確認用の数字に、出す)
-  captured: false,         // (指先のモード)撮影後の画面を、出している間
-  blob: null,
-  filename: "",
-  resultUrl: null,
   guide: null,             // 手の形のガイド(撮る手・手のひら / 甲・映像の大きさで、作り直す)
 };
 
@@ -69,26 +61,18 @@ function setGuide(text, ok) {
   stage.classList.toggle("ok", !!ok);
 }
 
-// 判定に使う、モードを、きめる(4つの撮影は、次に撮る物の、モード。指先は、選んだ方)
+// 判定に使う、モードを、きめる(次に撮る物の、モード。全部、撮れたら、最後の物)
 function applyMode() {
   const s = curStep();
-  state.mode = state.group === "tip" ? state.tipSub : s ? s.mode : STEPS[STEPS.length - 1].mode;
+  state.mode = s ? s.mode : STEPS[STEPS.length - 1].mode;
   state.hold = { since: null, progress: 0, ready: false };
   state.history = [];
 }
 
 function renderModeHelp() {
-  const seq = state.group === "seq";
   const s = curStep();
-  $("mode-help").textContent = seq
-    ? (s ? "次は、「" + s.label + "」。" + stepHelp(s) : "4つ、全部、撮れました。下の「全部、保存」で、保存します。")
-    : MODES[state.mode].help;
-  for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.dataset.mode === state.group);
-  $("tip-sub").hidden = seq;
-  $("seq-panel").hidden = !seq;
-  $("step-badges").hidden = !seq;
-  for (const b of document.querySelectorAll("#tip-sub button")) b.classList.toggle("on", b.dataset.sub === state.mode);
-  $("shoot").hidden = seq ? !SEQ_CAPTURE : !CAPTURE_ENABLED;   // 「撮影」ボタン(4つの撮影は、いつも。指先は、?capture=1 の時だけ)
+  $("mode-help").textContent = s ? "次は、「" + s.label + "」。" + stepHelp(s) : "4つ、全部、撮れました。下の「全部、保存」で、保存します。";
+  $("shoot").hidden = !SEQ_CAPTURE;   // 「撮影」ボタン(手動の撮影)
 }
 
 // 4つの撮影の、一覧(未 / 次 / 済み)を、描く
@@ -142,13 +126,6 @@ function renderChecks(checks) {
     li.textContent = (c.ok ? "✓ " : "・ ") + c.label;
     return li;
   }));
-}
-
-function setGroup(group) {
-  state.group = group;
-  applyMode();
-  renderModeHelp();
-  renderChecks([]);
 }
 
 // ---- カメラ ----
@@ -249,7 +226,7 @@ function drawHand(lm, ok, guide = null, matched = false) {
 // ---- 毎コマの処理 ----
 function loop() {
   requestAnimationFrame(loop);
-  if (state.captured || !state.landmarker || video.readyState < 2 || !video.videoWidth) return;
+  if (!state.landmarker || video.readyState < 2 || !video.videoWidth) return;
   if (video.currentTime === state.lastVideoTime) return;   // 新しいコマが、まだ
   state.lastVideoTime = video.currentTime;
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -278,8 +255,7 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
-  const seq = state.group === "seq";
-  const step = seq ? curStep() : null;   // 4つの撮影で、次に撮る物(全部、撮れたら null)
+  const step = curStep();   // 次に撮る物(全部、撮れたら null)
   let guide = null;
   if (step) {   // 手の形のガイド: 次に撮る物(手の左右・手のひら / 甲)の形
     const gk = [vw, vh, step.hand, step.mode].join();
@@ -291,26 +267,22 @@ function loop() {
   drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));
   renderChecks(r.checks);
 
-  const cooling = seq && now < state.cooldownUntil;   // 撮った直後(次の案内を、見せる間)
-  if (cooling || (seq && !step)) {
+  const cooling = now < state.cooldownUntil;   // 撮った直後(次の案内を、見せる間)
+  if (cooling || !step) {
     state.hold = { since: null, progress: 0, ready: false };
     $("hold").value = 0;
     setGuide(cooling ? state.justMsg : "4つ、全部、撮れました。「全部、保存」を、押してください", true);
   } else {
     state.hold = holdProgress(state.hold, r.allOk, now);
     $("hold").value = state.hold.progress;
-    const readyText = seq || CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
-    setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
+    setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? (SEQ_CAPTURE ? r.guide : "そろいました(撮影は、オフです)") : r.guide, r.allOk);
   }
   if (state.frameCount % 2 === 0) {   // いま見えている手(左右の判定が、合っているかを、確かめるため)
     if (lm) { const f = facingOf(lm, label, frame); $("seen").textContent = "いま見えている手: " + handName(f.hand) + "の" + (f.facing === "palm" ? "手のひら側" : "手の甲側"); }
     else $("seen").textContent = "いま見えている手: (なし)";
   }
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
-  if (state.hold.ready) {
-    if (seq && step && SEQ_CAPTURE) captureStep("auto");
-    else if (!seq && CAPTURE_ENABLED) capture("auto");
-  }
+  if (state.hold.ready && step && SEQ_CAPTURE) captureStep("auto");
 }
 
 // ---- 4つの撮影: 撮る・保存・撮り直す ----
@@ -326,13 +298,13 @@ const canvasBlob = async () => {
 };
 
 async function captureStep(how) {
-  if (state.capturing || state.group !== "seq" || state.step < 0) return;
+  if (state.capturing || state.step < 0) return;
   const i = state.step, step = STEPS[i];
   state.capturing = true;
   const shot = await canvasBlob();
   state.capturing = false;
   if (!shot) { setStatus("写真を、作れませんでした(映像が、まだ、準備できていません)"); return; }
-  if (state.group !== "seq" || state.step !== i) return;   // 撮っている間に、切り替えた
+  if (state.step !== i) return;   // 撮っている間に、次の物に、切り替わった
   if (state.shots[i]) URL.revokeObjectURL(state.shots[i].url);
   state.shots[i] = { blob: shot.blob, url: URL.createObjectURL(shot.blob), filename: stepFileName(step, new Date()), w: shot.w, h: shot.h };
   state.step = nextStep(state.shots.map(Boolean), i);
@@ -396,62 +368,7 @@ async function saveShots(indexes) {
   $("seq-note").textContent = "ダウンロードしました(" + list.map((i) => state.shots[i].filename).join("、") + ")。";
 }
 
-// ---- 指先のモード: 撮影と保存(従来の、撮影後の画面) ----
-async function capture(how) {
-  if (state.captured) return;
-  state.captured = true;
-  const shot = await canvasBlob();
-  if (!shot) { state.captured = false; setStatus("写真を、作れませんでした(映像が、まだ、準備できていません)"); return; }
-  const d = new Date();
-  const p2 = (n) => String(n).padStart(2, "0");
-  state.filename = "hand_" + state.mode + "_" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "_" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + ".jpg";
-  state.blob = shot.blob;
-  if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
-  state.resultUrl = URL.createObjectURL(shot.blob);
-  $("shot").src = state.resultUrl;
-  $("saved-note").textContent = (how === "auto" ? "撮れました(自動)。" : "撮りました。") + " " + shot.w + " × " + shot.h + "。写真は、まだ、保存していません。";
-  $("result").hidden = false;
-  $("camera-view").hidden = true;
-}
-
-async function savePhoto() {
-  if (!state.blob) return;
-  const file = new File([state.blob], state.filename, { type: "image/jpeg" });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {   // iPhone など: 共有の画面(「画像を保存」を選べる)
-    try {
-      await navigator.share({ files: [file] });
-      $("saved-note").textContent = "共有の画面を開きました。「画像を保存」を選ぶと、写真に入ります。";
-      return;
-    } catch (e) {
-      if (e && e.name === "AbortError") return;   // 取り消した
-    }
-  }
-  const a = document.createElement("a");   // PC など: ダウンロード
-  a.href = state.resultUrl;
-  a.download = state.filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  $("saved-note").textContent = "ダウンロードしました(" + state.filename + ")。";
-}
-
-function again() {
-  $("result").hidden = true;
-  $("camera-view").hidden = false;
-  state.captured = false;
-  state.hold = { since: null, progress: 0, ready: false };
-  state.history = [];
-  state.lastVideoTime = -1;
-  $("hold").value = 0;
-}
-
 // ---- 操作 ----
-for (const b of document.querySelectorAll("#modes button")) {
-  b.addEventListener("click", () => setGroup(b.dataset.mode));
-}
-for (const b of document.querySelectorAll("#tip-sub button")) {
-  b.addEventListener("click", () => { state.tipSub = b.dataset.sub; applyMode(); renderModeHelp(); renderChecks([]); });
-}
 $("steps").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
@@ -470,10 +387,8 @@ $("step-badges").addEventListener("click", (e) => {   // 左上の、まだ撮�
 });
 $("save-all").addEventListener("click", () => saveShots(STEPS.map((_, i) => i)));
 $("reset-all").addEventListener("click", resetAll);
-$("shoot").addEventListener("click", () => (state.group === "seq" ? captureStep("manual") : capture("manual")));
+$("shoot").addEventListener("click", () => captureStep("manual"));
 $("flip").addEventListener("click", () => { state.facingMode = state.facingMode === "user" ? "environment" : "user"; startCamera(); });
-$("save").addEventListener("click", savePhoto);
-$("again").addEventListener("click", again);
 
 // ---- 起動 ----
 if (window.matchMedia && window.matchMedia("(min-width: 900px)").matches) $("numbers").open = true;   // 広い画面(PC)では、確認用の数字を、手と一緒に見られるよう、はじめから、開いておく

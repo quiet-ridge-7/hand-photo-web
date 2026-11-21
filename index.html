@@ -11,16 +11,8 @@
 <body>
 <main>
   <h1>手の撮影</h1>
-  <p class="sub">手のひら・手の甲(右手・左手)を、順番に、ガイドに合わせて、撮ります。指先は、別のモードです。</p>
+  <p class="sub">手のひら・手の甲(右手・左手)を、順番に、ガイドに合わせて、撮ります。</p>
 
-  <div id="modes" class="seg" role="group" aria-label="撮り方">
-    <button type="button" data-mode="seq" class="on">手のひら・手の甲(右・左)</button>
-    <button type="button" data-mode="tip">指先</button>
-  </div>
-  <div id="tip-sub" class="seg seg2" role="group" aria-label="指先の撮り方" hidden>
-    <button type="button" data-sub="tip5" class="on">5本まとめて</button>
-    <button type="button" data-sub="tip1">1本ずつ</button>
-  </div>
   <p id="mode-help" class="sub"></p>
 
   <section id="camera-view">
@@ -54,15 +46,6 @@
         <summary>確認用の数字</summary>
         <pre id="numbers-text">(手が映ると、数字が出ます)</pre>
       </details>
-    </div>
-  </section>
-
-  <section id="result" hidden>
-    <img id="shot" alt="撮れた写真">
-    <p id="saved-note" class="sub"></p>
-    <div class="btns">
-      <button type="button" id="save" class="primary">写真に保存</button>
-      <button type="button" id="again">もう一度撮る</button>
     </div>
   </section>
 

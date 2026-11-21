@@ -2,14 +2,9 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", "Yu Gothic UI", "Hiragino Sans", sans-serif; line-height: 1.6; }
 main { max-width: 1100px; margin: 0 auto; padding: 16px; }
-#modes, #tip-sub, #result, details#about { max-width: 640px; }
 #seq-panel[hidden] { display: none; }
 h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .sub { color: var(--sub); font-size: 0.9rem; margin: 4px 0 12px; }
-.seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; background: var(--panel); border-radius: 10px; padding: 4px; margin-bottom: 8px; }
-.seg2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.seg button { padding: 10px 4px; font-size: 1rem; color: var(--sub); background: transparent; border: 1px solid transparent; border-radius: 8px; }
-.seg button.on { background: var(--bg); color: var(--text); font-weight: 600; border-color: var(--line); }
 #stage { position: relative; width: 100%; background: #000; border-radius: 12px; overflow: hidden; border: 3px solid var(--warn); }
 #stage.ok { border-color: var(--ok); }
 #video { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; background: #000; }
@@ -22,10 +17,9 @@ progress { width: 100%; height: 8px; margin: 8px 0; accent-color: var(--ok); }
 #checks li.ok { color: var(--ok); }
 #checks li.ng { color: var(--warn); }
 .btns { display: flex; gap: 8px; margin-top: 8px; }
-.btns button, #modes button { cursor: pointer; }
+.btns button { cursor: pointer; }
 .btns button { flex: 1; padding: 12px 6px; font-size: 1rem; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .btns button.primary { background: var(--accent); color: #07121f; border-color: var(--accent); font-weight: 700; }
-#shot { display: block; width: 100%; height: auto; border-radius: 12px; background: #000; }
 details { margin-top: 16px; background: var(--panel); border-radius: 10px; padding: 8px 12px; }
 summary { cursor: pointer; color: var(--sub); }
 details p { font-size: 0.9rem; color: var(--sub); }
@@ -33,7 +27,7 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 
 /* 映像と、チェック・数字を、並べる(広い画面)。狭い画面は、1列 */
 #camera-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-#camera-view[hidden], #result[hidden] { display: none; }
+#camera-view[hidden] { display: none; }
 @media (min-width: 900px) {
   #camera-view { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 20px; align-items: start; }
   #video { max-height: 80vh; }
@@ -64,3 +58,4 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 #step-badges .badge { padding: 3px 10px; border-radius: 8px; font-size: 0.85rem; background: rgba(15, 23, 42, 0.8); color: #cbd5e1; border: 2px solid transparent; white-space: nowrap; }
 #step-badges .badge.current { border-color: var(--accent); color: #fff; font-weight: 700; }
 #step-badges .badge.done { background: rgba(20, 100, 70, 0.92); color: #fff; border-color: var(--ok); font-weight: 700; }
+details#about { max-width: 640px; }

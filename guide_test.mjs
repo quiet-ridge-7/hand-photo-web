@@ -2,7 +2,7 @@
 //   実行: node guide_test.mjs
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
-import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
+import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
   meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
@@ -71,11 +71,6 @@ test("指の重なり: 大きく開いた手(12度)も、ゆるく開いた手(5
   }
   assert.ok(!run("palm", makeHand({ spread: 0 })).checks.find((c) => c.id === "open").ok);
 });
-test("指先の大きさ: 手を大きく写すと、大きくなる", () => {
-  const a = tipSegments(makeHand({ scale: 0.8 }).lm, FRAME)[1], b = tipSegments(makeHand({ scale: 1.6 }).lm, FRAME)[1];
-  assert.ok(b > a * 1.9);
-});
-
 // ---- 動き ----
 test("動き: 止まっている手は、小さい。動いている手は、大きい。見ている時間が、短い間は、動いている扱い", () => {
   const h = makeHand().lm;
@@ -103,14 +98,12 @@ test("明るさ・くっきり度: 市松模様は、くっきり。なめらか
 const near = (a, b, tol = 0.5) => Math.abs(a - b) <= tol;
 
 // ---- 測る場所 ----
-test("測る場所: 手のひら / 甲は、手の中心と、指の関節のまわり(6か所)。指先は、5本の指先。1本ずつは、中心に近い1本。手が無ければ、画面の中心", () => {
+test("測る場所: 手の中心と、指の関節のまわり(6か所)。手が無ければ、画面の中心", () => {
   const h = makeHand({ facing: "palm" }).lm;
   const pc = patchCenters(h, "palm");
   assert.equal(pc.length, 6);
   const b = bbox(h);
   assert.ok(pc.every((p) => p.x >= b.minX && p.x <= b.maxX && p.y >= b.minY && p.y <= b.maxY), "手の枠の外に、ある");
-  assert.equal(patchCenters(h, "tip5").length, 5);
-  assert.equal(patchCenters(h, "tip1").length, 1);
   assert.deepEqual(patchCenters(null, "palm"), [{ x: 0.5, y: 0.5 }]);
 });
 test("測る数字のまとめ: 明るさは平均。くっきり度は、いちばん高い場所(なめらかな皮膚が、混ざっても、下がらない)", () => {
@@ -166,31 +159,6 @@ test("ガイド: 暗い / 明るすぎる / 動いている / ぼやけている
 test("ガイドの順番: 先に、近さ、次に、向き、…。複数、ダメな時は、いちばん上の、1つだけ", () => {
   const h = makeHand({ scale: 0.3, facing: "back" });   // 遠い + 向きが逆
   assert.equal(run("palm", h, { brightness: 10, motion: 0.1 }).guide, "もう少し、近づけてください");
-});
-
-// ---- 指先モード ----
-test("指先(5本まとめて): 爪の側(甲)で、指先が、大きく、中央にある手 → ok", () => {
-  const h = makeHand({ facing: "back", scale: 1.5, tipsAt: { x: 0.5, y: 0.35 } });
-  const r = run("tip5", h);
-  assert.ok(r.allOk, JSON.stringify(r.checks.filter((c) => !c.ok)) + JSON.stringify(r.numbers));
-});
-test("指先: 手のひら側なら「爪が見える側」。遠ければ「近づけて」。中央から外れていれば、「中央に」", () => {
-  assert.equal(run("tip5", makeHand({ facing: "palm", scale: 1.5, tipsAt: { x: 0.5, y: 0.35 } })).guide, "爪が見える側(手の甲)を、カメラに、向けてください");
-  assert.equal(run("tip5", makeHand({ facing: "back", scale: 0.45, tipsAt: { x: 0.5, y: 0.35 } })).guide, "もう少し、近づけてください");
-  const savedTol = T.tipCenterTol;   // 指先は、広がっていて、画面の端まで、はみ出さずに、大きくずらすのが、難しいので、許す幅を、一時的に、せまくして、確かめる
-  T.tipCenterTol = 0.12;
-  try { assert.equal(run("tip5", makeHand({ facing: "back", scale: 1.0, tipsAt: { x: 0.68, y: 0.35 } })).guide, "指先を、画面の中央に、動かしてください"); } finally { T.tipCenterTol = savedTol; }
-  assert.equal(run("tip5", makeHand({ facing: "back", scale: 1.5, tipsAt: { x: 0.5, y: 0.35 } }), { sharp: 3 }).guide, "ピントが合うまで、止めてください");
-});
-test("指先(1本ずつ): 中央に近い指先が、撮る相手。その指が、大きく、中央にあれば ok。指の名前が、数字に出る", () => {
-  const h = makeHand({ facing: "back", scale: 1.5, tipsAt: { x: 0.5, y: 0.35 } });
-  const r = run("tip1", h);
-  assert.ok(r.numbers.finger && typeof r.numbers.finger === "string");
-  assert.ok(Number.isFinite(r.numbers.segMed));
-});
-test("指先モードの、チェック項目は、手のひら / 甲と、違う(爪の側、指先の大きさ)", () => {
-  const ids = checkList("tip5").map((c) => c.id);
-  assert.ok(ids.includes("tipsize") && ids.includes("facing") && !ids.includes("open"));
 });
 
 // ---- 手の形のガイドと、一致した面積 ----
@@ -282,9 +250,8 @@ test("撮る手の確認: 右手を撮る時に、左手が映ると『右手を
   assert.ok(run("back", makeHand({ hand: "right", facing: "back" }), { wantHand: "right" }).allOk);
   assert.ok(run("back", makeHand({ hand: "left", facing: "back" }), { wantHand: "right" }).guide.startsWith("右手を"));
 });
-test("撮る手の確認: 指定しなければ、チェック項目は、増えない。指先モードにも、無い", () => {
+test("撮る手の確認: 指定しなければ、チェック項目は、増えない。指定すると、1つ増える", () => {
   assert.ok(!checkList("palm").some((c) => c.id === "side") && checkList("palm", "right").some((c) => c.id === "side") && checkList("back", "left").some((c) => c.id === "side"));
-  assert.ok(!checkList("tip5", "right").some((c) => c.id === "side") && !checkList("tip1", "left").some((c) => c.id === "side"));
   assert.equal(checkList("palm", "right").length, checkList("palm").length + 1);
 });
 
