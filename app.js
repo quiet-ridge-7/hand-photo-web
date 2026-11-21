@@ -1,10 +1,10 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
-//   手のひら・手の甲を、右手 → 左手の順に、4つ(STEPS)、自動で撮る。
+//   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v16";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v17";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -77,7 +77,7 @@ function renderModeHelp() {
 
 // 4つの撮影の、一覧(未 / 次 / 済み)を、描く
 function renderSteps() {
-  // 映像の上の、4つ(横一列: 右手のひら、右手の甲、左手のひら、左手の甲)。 撮れたら、緑。次に撮る物は、青い枠
+  // 映像の上の、4つ(横一列: 左手のひら、左手の甲、右手のひら、右手の甲)。 撮れたら、緑。次に撮る物は、青い枠
   $("step-badges").replaceChildren(...STEPS.map((s, i) => {
     const b = document.createElement("span");
     b.className = "badge " + (state.shots[i] ? "done" : i === state.step ? "current" : "todo");

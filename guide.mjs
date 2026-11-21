@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v16";
+export const VERSION = "v17";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -295,12 +295,12 @@ export function checkList(mode, wantHand = null) {
   return common;
 }
 
-// ---- 撮る順番(手のひら・手の甲 × 右手・左手) ----
+// ---- 撮る順番(左手 → 右手。それぞれ、手のひら → 手の甲) ----
 export const STEPS = [
-  { id: "right-palm", hand: "right", mode: "palm", label: "右手のひら" },
-  { id: "right-back", hand: "right", mode: "back", label: "右手の甲" },
   { id: "left-palm", hand: "left", mode: "palm", label: "左手のひら" },
   { id: "left-back", hand: "left", mode: "back", label: "左手の甲" },
+  { id: "right-palm", hand: "right", mode: "palm", label: "右手のひら" },
+  { id: "right-back", hand: "right", mode: "back", label: "右手の甲" },
 ];
 
 // 次に撮る物の番号。 current の次から、一周して、まだ撮っていない物を探す。 全部、撮れていれば -1。 current が -1 なら、先頭から。

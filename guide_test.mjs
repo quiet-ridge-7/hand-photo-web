@@ -221,9 +221,9 @@ test("ガイドとの一致: withShape を false にすると、形だけ(shape)
 });
 
 // ---- 右手・左手に分けた、撮る順番 ----
-test("撮る順番: 右手のひら → 右手の甲 → 左手のひら → 左手の甲。手の左右・モードが、合っている", () => {
-  assert.deepEqual(STEPS.map((s) => s.id), ["right-palm", "right-back", "left-palm", "left-back"]);
-  assert.deepEqual(STEPS.map((s) => s.hand + "/" + s.mode), ["right/palm", "right/back", "left/palm", "left/back"]);
+test("撮る順番: 左手のひら → 左手の甲 → 右手のひら → 右手の甲。手の左右・モードが、合っている", () => {
+  assert.deepEqual(STEPS.map((s) => s.id), ["left-palm", "left-back", "right-palm", "right-back"]);
+  assert.deepEqual(STEPS.map((s) => s.hand + "/" + s.mode), ["left/palm", "left/back", "right/palm", "right/back"]);
 });
 test("次に撮る物: 先頭から。撮れた物は、飛ばす。一周して、戻る。全部、撮れたら -1", () => {
   assert.equal(nextStep([false, false, false, false], -1), 0);
@@ -236,10 +236,10 @@ test("次に撮る物: 先頭から。撮れた物は、飛ばす。一周して
   assert.equal(nextStep([false, true, false, false], 1), 2);
 });
 test("説明の文と、ファイル名", () => {
-  assert.equal(stepHelp(STEPS[0]), "右手の、手のひら側を、カメラに向けて、指を開きます。");
-  assert.equal(stepHelp(STEPS[3]), "左手の、手の甲側を、カメラに向けて、指を開きます。");
-  assert.equal(stepFileName(STEPS[1], new Date(2026, 10, 21, 9, 5, 7)), "hand_right_back_20261121_090507.jpg");
-  assert.equal(stepFileName(STEPS[2], new Date(2026, 10, 21, 15, 0, 0)), "hand_left_palm_20261121_150000.jpg");
+  assert.equal(stepHelp(STEPS[2]), "右手の、手のひら側を、カメラに向けて、指を開きます。");
+  assert.equal(stepHelp(STEPS[1]), "左手の、手の甲側を、カメラに向けて、指を開きます。");
+  assert.equal(stepFileName(STEPS[3], new Date(2026, 10, 21, 9, 5, 7)), "hand_right_back_20261121_090507.jpg");
+  assert.equal(stepFileName(STEPS[0], new Date(2026, 10, 21, 15, 0, 0)), "hand_left_palm_20261121_150000.jpg");
 });
 test("撮る手の確認: 右手を撮る時に、左手が映ると『右手を、映してください(いまは、左手です)』。手のひらか甲かの文より、先", () => {
   const left = makeHand({ hand: "left", facing: "back" });   // 左手の甲 を、右手のひらの番で
