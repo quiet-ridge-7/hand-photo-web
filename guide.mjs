@@ -8,6 +8,7 @@ export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
   sizeMin: 0.50,       // 手の大きさ(手の枠の、長い方 ÷ 画面の短い辺)。これより小さいと「遠い」
   sizeMax: 0.98,       // これより大きいと「近い」
+  guideOverlap: 0.70,  // ガイドとの一致した面積(そのまま重ねた時)が、これ以上なら、ガイドを緑にする
   centerTol: 0.25,     // 手の中心が、画面の中心から、この割合(画面の幅・高さに対して)より外れると、「中央に」
   flatMin: 0.45,       // 手のひらの幅 ÷ 高さ。これより小さいと、「傾いている」(カメラに、まっすぐ向けていない)
   extendRatio: 1.12,   // 指が伸びている: (指先〜手首) ÷ (第2関節〜手首) が、これ以上
@@ -55,6 +56,118 @@ export function bbox(lm) {
   const xs = lm.map((p) => p.x), ys = lm.map((p) => p.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
   return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+}
+
+// ---- 手の形のガイドと、一致した面積 ----
+// ガイドの手(正面向きの、指を開いた手)と、いまの手を、「太らせた骨組み」(手のひらの多角形 + 指の太い線)の形にして、重なりの面積を比べる。
+//   どちらも、同じ作り方なので、輪郭の細かさの、違いは出ない(粗い形どうしの比べ)。 リアルタイムで動く(分割モデルは、使わない)。
+export const SIL = { finger: 0.11, thumb: 0.14, palm: 0.08 };   // 線の半径 = 手のひらの幅(5〜17)× この値
+export const GUIDE_FILL = 0.8;                                   // ガイドの手の大きさ(手首〜指先の長さ ÷ 画面の短い辺)
+export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
+  [1, 2, "thumb"], [2, 3, "thumb"], [3, 4, "thumb"],
+  [5, 6, "finger"], [6, 7, "finger"], [7, 8, "finger"], [9, 10, "finger"], [10, 11, "finger"], [11, 12, "finger"],
+  [13, 14, "finger"], [14, 15, "finger"], [15, 16, "finger"], [17, 18, "finger"], [18, 19, "finger"], [19, 20, "finger"],
+  [0, 1, "palm"], [1, 5, "palm"], [5, 9, "palm"], [9, 13, "palm"], [13, 17, "palm"], [17, 0, "palm"],
+];
+export const PALM_POLY = [0, 1, 5, 9, 13, 17];
+
+// 土台の手の形(手首が原点、指が上向き、手のひらが、カメラに向いた、右手。単位は、手の長さに近い、相対の値)
+function templatePoints(spread = 12) {
+  const dirAngle = [1.5, 0.5, -0.5, -1.5].map((k) => k * spread);
+  const mcp = [{ x: 0.16, y: -0.36 }, { x: 0.05, y: -0.40 }, { x: -0.06, y: -0.38 }, { x: -0.17, y: -0.32 }];
+  const len = [0.30, 0.34, 0.31, 0.24];
+  const pts = new Array(21);
+  pts[0] = { x: 0, y: 0 };
+  pts[1] = { x: 0.12, y: -0.08 }; pts[2] = { x: 0.22, y: -0.18 }; pts[3] = { x: 0.30, y: -0.27 }; pts[4] = { x: 0.36, y: -0.35 };
+  for (let f = 0; f < 4; f++) {
+    const a = (dirAngle[f] * Math.PI) / 180, d = { x: Math.sin(a), y: -Math.cos(a) };
+    const at = (k) => ({ x: mcp[f].x + d.x * len[f] * k, y: mcp[f].y + d.y * len[f] * k });
+    const base = 5 + f * 4;
+    pts[base] = { ...mcp[f] }; pts[base + 1] = at(0.45); pts[base + 2] = at(0.72); pts[base + 3] = at(1.0);
+  }
+  return pts;
+}
+
+// 太らせた骨組みの形(0/1 の地図)。 lm: 0〜1 の手の点21個。 gw: 地図の幅(マス)。 戻り値: { mask, gw, gh, area }
+export function silhouetteMask(lm, frame, gw = 200) {
+  const gh = Math.max(1, Math.round((gw * frame.h) / frame.w));
+  const mask = new Uint8Array(gw * gh);
+  const P = lm.map((q) => ({ x: q.x * gw, y: q.y * gh }));   // 地図のマスの座標(マスは、正方形)
+  const palmW = dist(P[5], P[17]);
+  // 手のひらの多角形の中(偶奇)
+  const poly = PALM_POLY.map((i) => P[i]);
+  for (let j = 0; j < gh; j++) {
+    const y = j + 0.5, xs = [];
+    for (let k = 0; k < poly.length; k++) {
+      const a = poly[k], b = poly[(k + 1) % poly.length];
+      if ((a.y <= y && b.y > y) || (b.y <= y && a.y > y)) xs.push(a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x));
+    }
+    xs.sort((m, n) => m - n);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      for (let i = Math.max(0, Math.ceil(xs[k] - 0.5)); i <= Math.min(gw - 1, Math.floor(xs[k + 1] - 0.5)); i++) mask[j * gw + i] = 1;
+    }
+  }
+  // 骨組みの線を、半径をつけて、太らせる
+  for (const [s, e, kind] of SIL_BONES) {
+    const a = P[s], b = P[e], r = SIL[kind] * palmW;
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    const x0 = Math.max(0, Math.floor(Math.min(a.x, b.x) - r)), x1 = Math.min(gw - 1, Math.ceil(Math.max(a.x, b.x) + r));
+    const y0 = Math.max(0, Math.floor(Math.min(a.y, b.y) - r)), y1 = Math.min(gh - 1, Math.ceil(Math.max(a.y, b.y) + r));
+    for (let j = y0; j <= y1; j++) {
+      for (let i = x0; i <= x1; i++) {
+        const x = i + 0.5, y = j + 0.5;
+        const t = L2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L2)) : 0;
+        if (Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy)) <= r) mask[j * gw + i] = 1;
+      }
+    }
+  }
+  let area = 0;
+  for (let i = 0; i < mask.length; i++) area += mask[i];
+  return { mask, gw, gh, area };
+}
+
+// 2つの形の、一致した面積 = 重なり ÷ 合わせた面積(0〜1)
+export function maskIoU(a, b) {
+  if (!a || !b || a.mask.length !== b.mask.length) return null;
+  let inter = 0, uni = 0;
+  for (let i = 0; i < a.mask.length; i++) { const x = a.mask[i], y = b.mask[i]; if (x & y) inter++; if (x | y) uni++; }
+  return uni === 0 ? null : inter / uni;
+}
+
+// ガイドの手(正面向き・指を開いた手)の点と形。 hand: 本当の手 "right" | "left"、facing: カメラに向く側 "palm" | "back"。 画面の真ん中に、大きさ GUIDE_FILL で置く。
+export function makeGuide(frame, { hand = "right", facing = "palm", spread = 12 } = {}) {
+  const flipX = (hand === "left") !== (facing === "back");
+  const S = (GUIDE_FILL * Math.min(frame.w, frame.h)) / 0.74;
+  const pts = templatePoints(spread).map((p) => ({ x: (flipX ? -p.x : p.x) * S, y: p.y * S }));
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const ox = frame.w / 2 - (Math.min(...xs) + Math.max(...xs)) / 2, oy = frame.h / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
+  const lm = pts.map((p) => ({ x: (p.x + ox) / frame.w, y: (p.y + oy) / frame.h, z: 0 }));
+  return { lm, sil: silhouetteMask(lm, frame), hand, facing };
+}
+
+// いまの手を、手首(0)と中指の付け根(9)が、ガイドと同じ位置・向き・大きさになるように、動かして・回して・拡大縮小する(形だけを、比べるため)
+export function alignHand(lm, target, frame) {
+  const L = lm.map((q) => px(q, frame)), T0 = px(target[LM.WRIST], frame), T9 = px(target[LM.MIDDLE_MCP], frame);
+  const l0 = L[LM.WRIST], l9 = L[LM.MIDDLE_MCP];
+  const lv = { x: l9.x - l0.x, y: l9.y - l0.y }, tv = { x: T9.x - T0.x, y: T9.y - T0.y };
+  const ll = Math.hypot(lv.x, lv.y), tl = Math.hypot(tv.x, tv.y);
+  if (ll < 1e-6 || tl < 1e-6) return null;
+  const s = tl / ll, ang = Math.atan2(tv.y, tv.x) - Math.atan2(lv.y, lv.x), c = Math.cos(ang), n = Math.sin(ang);
+  return L.map((q) => {
+    const x = q.x - l0.x, y = q.y - l0.y;
+    return { x: (T0.x + s * (c * x - n * y)) / frame.w, y: (T0.y + s * (n * x + c * y)) / frame.h, z: 0 };
+  });
+}
+
+// いまの手(lm)と、ガイド(makeGuide の結果)の、一致した面積。
+//   overlap = 画面の上で、そのまま重ねた時。 shape = 位置・向き・大きさをそろえた後の、形だけ(手を傾けたり、指を閉じたりすると、下がる)。
+export function guideMatch(lm, guide, frame) {
+  if (!lm || lm.length < 21 || !guide) return null;
+  const live = silhouetteMask(lm, frame, guide.sil.gw);
+  const overlap = maskIoU(live, guide.sil);
+  const al = alignHand(lm, guide.lm, frame);
+  const shape = al ? maskIoU(silhouetteMask(al, frame, guide.sil.gw), guide.sil) : null;
+  return { overlap, shape };
 }
 
 // ---- 輪郭(画面の中の、手の形) ----

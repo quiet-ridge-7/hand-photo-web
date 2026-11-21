@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker, createHandSegmenter } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, outlineShape, handStrokes, maskStats } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, outlineShape, handStrokes, maskStats, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -47,6 +47,8 @@ const state = {
   seg: null,                // 輪郭の分割モデル(ボタンを、初めて押した時に、読み込む)
   segLoading: false,
   segBusy: false,
+  guide: null,              // 手の形のガイド(手の左右・手のひら / 甲・映像の大きさで、作り直す)
+  guideHand: "right",       // 最後に見えた、手の左右(ガイドの形に、使う)
   lastLm: null,             // 最後に見つけた、手の点と、映像の大きさ(ボタンを押した時に、使う)
   lastFrame: null,
   segCanvas: null,          // 分割の結果を、描いた絵(重ねて表示)
@@ -208,9 +210,52 @@ function clearSegment() {
   $("seg-note").textContent = "";
 }
 
+// 手の形のガイドを、うすく描く(ガイドに、手を重ねてもらう)。 形は、骨組みを太らせた形(guide.mjs の silhouetteMask と、同じ作り方)。 絵は、とっておいて、使い回す
+const guideCache = { key: "", canvas: null };
+function drawGuide(guide, matched) {
+  const w = overlay.width, h = overlay.height;
+  const key = [w, h, guide.hand, guide.facing, matched].join();
+  if (guideCache.key !== key) {
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const c = cv.getContext("2d");
+    const P = guide.lm.map((p) => ({ x: p.x * w, y: p.y * h }));
+    const palmW = Math.hypot(P[5].x - P[17].x, P[5].y - P[17].y);
+    c.fillStyle = c.strokeStyle = matched ? "#4cc38a" : "#ffffff";
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    c.beginPath();
+    PALM_POLY.forEach((i, k) => (k ? c.lineTo(P[i].x, P[i].y) : c.moveTo(P[i].x, P[i].y)));
+    c.closePath();
+    c.fill();
+    for (const [s, e, kind] of SIL_BONES) {
+      c.lineWidth = 2 * SIL[kind] * palmW;
+      c.beginPath();
+      c.moveTo(P[s].x, P[s].y);
+      c.lineTo(P[e].x, P[e].y);
+      c.stroke();
+    }
+    guideCache.key = key;
+    guideCache.canvas = cv;
+  }
+  octx.save();
+  octx.globalAlpha = 0.22;
+  octx.drawImage(guideCache.canvas, 0, 0);
+  octx.restore();
+}
+
+// ガイドとの一致した面積(%)
+function guideLine(m) {
+  if (!m || m.overlap == null) return "";
+  const pc = (v) => (v == null ? "-" : String(Math.round(v * 100)).padStart(3, " ") + "%");
+  return "\nガイドとの一致(面積): そのまま " + pc(m.overlap) + "  形だけ(位置・向き・大きさを、そろえて) " + pc(m.shape);
+}
+
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok, arrow = null, depth = null, outline = null) {
+function drawHand(lm, ok, arrow = null, depth = null, outline = null, guide = null, matched = false) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (guide) drawGuide(guide, matched);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
   if (state.segCanvas) octx.drawImage(state.segCanvas, 0, 0, w, h);   // 実際の輪郭(分割モデル。ボタンを押した時の、1回分)
@@ -329,14 +374,22 @@ function loop() {
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
   state.lastLm = lm;
   state.lastFrame = frame;
+  if (r.numbers.hand) state.guideHand = r.numbers.hand;
+  let guide = null;
+  if (state.mode === "palm" || state.mode === "back") {   // 指先のモードでは、ガイドは、出さない
+    const gk = [vw, vh, state.guideHand, state.mode].join();
+    if (!state.guide || state.guide.key !== gk) state.guide = { key: gk, g: makeGuide(frame, { hand: state.guideHand, facing: state.mode }) };
+    guide = state.guide.g;
+  }
+  const gm = guide && lm ? guideMatch(lm, guide, frame) : null;
   const outline = lm ? outlineShape(lm, frame) : null;
-  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null, outline);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
+  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null, outline, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
-  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + outlineLine(outline) + segLine();   // 向きの数字を、1行で、いつも見える所に
+  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + guideLine(gm) + outlineLine(outline) + segLine();   // 向きの数字を、1行で、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }

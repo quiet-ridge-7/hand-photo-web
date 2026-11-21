@@ -179,6 +179,21 @@ try {
   await waitFor(`!/実際の輪郭/.test(document.getElementById("pose-line").textContent)`, "消した後の、輪郭の数字の消去", 5000).catch(() => {});
   check("B3u 「輪郭を消す」を押すと、実際の輪郭の数字は、消える", !/実際の輪郭/.test(await text("#pose-line")));
 
+  // 手の形のガイド: 手のひらモードで、ガイド(うすい形)を出し、いまの手との、一致した面積(%)を出す
+  const pcts = async () => { const m = (await text("#pose-line")).match(/そのまま\s*(\d+)%\s+形だけ[^0-9]*(\d+)%/); return m ? [Number(m[1]), Number(m[2])] : null; };
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
+  await waitFor(`/ガイドとの一致\(面積\): そのまま/.test(document.getElementById("pose-line").textContent)`, "ガイドとの一致", 8000).catch(() => {});
+  const g1 = await pcts();
+  check("G1 手のひらモード: 3行目に『ガイドとの一致(面積): そのまま ○% 形だけ ○%』が出る。ガイドと同じ位置の手は、高い(そのまま 60%以上、形だけ 80%以上)", !!g1 && g1[0] >= 60 && g1[1] >= 80, JSON.stringify(g1));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
+  let g2 = null;
+  for (let k = 0; k < 60; k++) { g2 = await pcts(); if (g2 && g1 && g2[0] < g1[0] - 15) break; await sleep(100); }
+  check("G2 手を右にずらすと、『そのまま』は下がり、『形だけ』は、あまり変わらない", !!g2 && !!g1 && g2[0] < g1[0] - 15 && g2[1] >= g1[1] - 10, JSON.stringify([g1, g2]));
+  await ev(`window.__handNow = null; true`);
+  await waitFor(`!/ガイドとの一致\(面積\)/.test(document.getElementById("pose-line").textContent)`, "手を外した後", 8000).catch(() => {});
+  const guideAlpha = await ev(`(() => { const c = document.getElementById("overlay"); const d = c.getContext("2d").getImageData(Math.round(c.width * 0.5) - 3, Math.round(c.height * 0.6) - 3, 6, 6).data; let s = 0; for (let i = 3; i < d.length; i += 4) s += d[i]; return s / (d.length / 4); })()`);
+  check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(手のひらの中ほどの絵に、色がある)", guideAlpha > 20, String(guideAlpha));
+
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });
   let gotResult = true;
@@ -220,6 +235,9 @@ try {
   check("B11 「指先」を選ぶと、「5本まとめて / 1本ずつ」が、出る。チェック項目は、指先用(8項目)", !(await ev(`document.getElementById("tip-sub").hidden`)) && (await ev(`document.querySelectorAll("#checks li").length`)) === 8, String(await ev(`document.querySelectorAll("#checks li").length`)));
   await ev(`document.querySelector('#tip-sub button[data-sub="tip1"]').click(); true`);
   check("B12 「1本ずつ」に切り替わる(説明が、変わる)", /撮りたい指/.test(await text("#mode-help")), await text("#mode-help"));
+  await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });
+  await sleep(600);
+  check("G4 指先モードでは、ガイドとの一致は、出さない", !/ガイドとの一致/.test(await text("#pose-line")), await text("#pose-line"));
   await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
   check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
 

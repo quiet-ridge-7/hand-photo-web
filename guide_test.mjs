@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, handStrokes, maskStats, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, handStrokes, maskStats, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -453,6 +453,48 @@ test("分割: 地図の、面積・長さ・幅。四角い地図で、数字が
   assert.ok(near(s.ratio, 0.75, 0.01) && s.areaNorm > 0);
   assert.equal(maskStats(new Float32Array(mw * mh), mw, mh, h.lm, FRAME), null);
   assert.equal(maskStats(mask, mw, mh, null, FRAME), null);
+});
+
+// ---- 手の形のガイドと、一致した面積 ----
+test("ガイド: 右手の手のひらと、左手の手のひらは、左右が逆。手のひらと甲も、左右が逆。画面の真ん中に、ほぼ収まる", () => {
+  const gr = makeGuide(FRAME, { hand: "right", facing: "palm" }), gl = makeGuide(FRAME, { hand: "left", facing: "palm" }), rb = makeGuide(FRAME, { hand: "right", facing: "back" });
+  assert.ok(gr.lm[4].x > gr.lm[0].x && gl.lm[4].x < gl.lm[0].x && rb.lm[4].x < rb.lm[0].x, "親指の側");
+  const b = bbox(gr.lm);
+  assert.ok(near(b.cx, 0.5, 0.01) && near(b.cy, 0.5, 0.01) && b.minY > 0 && b.maxY < 1 && b.minX > 0 && b.maxX < 1);
+  assert.ok(gr.sil.area > 500 && gr.sil.gh === Math.round(200 * 720 / 1280));
+});
+test("ガイドとの一致: ガイドと同じ手は 100%。同じ形の手(makeHand の初期値)も、ほぼ 100%", () => {
+  const g = makeGuide(FRAME, { hand: "right", facing: "palm" });
+  const m = guideMatch(g.lm, g, FRAME);
+  assert.ok(near(m.overlap, 1, 1e-9) && near(m.shape, 1, 1e-9));
+  const h = makeHand({ hand: "right", facing: "palm" });
+  const m2 = guideMatch(h.lm, g, FRAME);
+  assert.ok(m2.overlap > 0.97 && m2.shape > 0.97, JSON.stringify(m2));
+});
+test("ガイドとの一致: ずらすと『そのまま』は下がり、『形だけ』は変わらない。小さくしても、回しても、『形だけ』は変わらない", () => {
+  const g = makeGuide(FRAME, { hand: "right", facing: "palm" });
+  const at = (o) => guideMatch(makeHand({ hand: "right", facing: "palm", ...o }).lm, g, FRAME);
+  const base = at({}), moved = at({ cx: 0.62 }), moved2 = at({ cx: 0.75 }), small = at({ scale: 0.55 });
+  assert.ok(moved.overlap < base.overlap - 0.15 && moved2.overlap < moved.overlap, JSON.stringify([base, moved, moved2]));
+  assert.ok(moved.shape > 0.95 && small.shape > 0.95 && small.overlap < 0.6, JSON.stringify([moved, small]));
+  // 画面の中で回す(roll): 点を、真ん中のまわりで、30度回す
+  const h = makeHand({ hand: "right", facing: "palm" }), c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6);
+  const rot = h.lm.map((q) => { const x = (q.x - 0.5) * FRAME.w, y = (q.y - 0.5) * FRAME.h; return { x: 0.5 + (c * x - s * y) / FRAME.w, y: 0.5 + (s * x + c * y) / FRAME.h, z: 0 }; });
+  const mr = guideMatch(rot, g, FRAME);
+  assert.ok(mr.shape > 0.95 && mr.overlap < 0.8, JSON.stringify(mr));
+});
+test("ガイドとの一致: 手を傾ける(幅が縮む)ほど『形だけ』が下がる。指を閉じる(開きが小さい)と、下がる", () => {
+  const g = makeGuide(FRAME, { hand: "right", facing: "palm" });
+  const sh = (o) => guideMatch(makeHand({ hand: "right", facing: "palm", ...o }).lm, g, FRAME).shape;
+  assert.ok(sh({ tilt: 1 }) > sh({ tilt: 0.85 }) && sh({ tilt: 0.85 }) > sh({ tilt: 0.6 }), [sh({ tilt: 1 }), sh({ tilt: 0.85 }), sh({ tilt: 0.6 })].join());
+  assert.ok(sh({ spread: 12 }) > sh({ spread: 2 }), [sh({ spread: 12 }), sh({ spread: 2 })].join());
+});
+test("ガイドとの一致: 手の甲のガイドに、手のひらの手を重ねると、親指の側が逆で、下がる。点が足りない時は null", () => {
+  const gb = makeGuide(FRAME, { hand: "right", facing: "back" });
+  const same = guideMatch(makeHand({ hand: "right", facing: "back" }).lm, gb, FRAME), other = guideMatch(makeHand({ hand: "right", facing: "palm" }).lm, gb, FRAME);
+  assert.ok(same.shape > 0.97 && other.overlap < same.overlap - 0.1, JSON.stringify([same, other]));
+  assert.equal(guideMatch(null, gb, FRAME), null);
+  assert.equal(maskIoU(null, gb.sil), null);
 });
 
 // ---- 続ける時間 ----
