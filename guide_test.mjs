@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, DIP_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -204,26 +204,26 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
 });
 
 // ---- 奥行き(平均を 0 に)と、色 ----
-test("奥行き: 指先の5点を除いた 16点の、平均を引くので、16点の合計が 0。指先は null。向きを変えても、平均が 0。点が足りなければ null", () => {
+test("奥行き: 11点(指先と、第1関節を除く)の、平均を引くので、11点の合計が 0。ほかの10点は null。向きを変えても、平均が 0。点が足りなければ null", () => {
   for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
     const d = depthRelative(makeWorld(o));
     assert.equal(d.length, 21);
-    assert.ok([4, 8, 12, 16, 20].every((i) => d[i] === null), "指先は、null");
-    assert.equal(d.filter((v) => v !== null).length, 16);
+    assert.ok([3, 4, 7, 8, 11, 12, 15, 16, 19, 20].every((i) => d[i] === null), "指先と第1関節は、null");
+    assert.equal(d.filter((v) => v !== null).length, 11);
     assert.ok(Math.abs(d.filter((v) => v !== null).reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
   }
-  const biased = makeWorld({}).map((q, i) => ([4, 8, 12, 16, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
-  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "指先が、どんなに、ずれても、16点の平均や、色は、変わらない");
+  const biased = makeWorld({}).map((q, i) => ([3, 4, 7, 8, 11, 12, 15, 16, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
+  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "指先や第1関節が、どんなに、ずれても、11点の平均や、色は、変わらない");
   assert.equal(depthRelative(null), null);
   assert.equal(depthRelative([]), null);
-  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 3 ? { x: 0, y: 0, z: NaN } : q))), null);
-  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)が、壊れていても、16点には、関係ない");
+  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 2 ? { x: 0, y: 0, z: NaN } : q))), null);   // 11点の中の点(2番)が、壊れていれば、null
+  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 || i === 7 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)や第1関節(7番)が、壊れていても、11点には、関係ない");
 });
 test("奥行き: 平らな手を、まっすぐ向けると、全部 0。pan で、ひねると、片側が近く、反対側が遠い", () => {
   assert.ok(depthRelative(makeWorld({})).every((v) => Math.abs(v) < 1e-12));
   const w = makeWorld({ pan: 30 }), d = depthRelative(w);
-  const xs = POINTS16.map((i) => w[i].x);   // 色を付ける 16点の中で、いちばん左と、いちばん右の点
-  const left = POINTS16[xs.indexOf(Math.min(...xs))], right = POINTS16[xs.indexOf(Math.max(...xs))];
+  const xs = POINTS11.map((i) => w[i].x);   // 色を付ける 11点の中で、いちばん左と、いちばん右の点
+  const left = POINTS11[xs.indexOf(Math.min(...xs))], right = POINTS11[xs.indexOf(Math.max(...xs))];
   assert.ok(d[left] * d[right] < 0 && Math.abs(d[left]) > 0.01 && Math.abs(d[right]) > 0.01, JSON.stringify({ l: d[left], r: d[right] }));
 });
 test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤。遠い(+3cm)は、青。±3cm を超えても、それ以上は、濃くならない。真ん中は、中間", () => {
@@ -240,7 +240,7 @@ test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | �
   assert.equal(txt.split("|").length, 6);
   const tokens = txt.replace(/\|/g, " ").trim().split(/\s+/);
   assert.equal(tokens.length, 21);
-  assert.equal(tokens.filter((v) => v === "x").length, 5, "指先の5点は、x");
+  assert.equal(tokens.filter((v) => v === "x").length, 10, "色を付けない10点は、x");
   assert.equal(depthText(null), null);
   const hand = makeHand({ facing: "palm" });
   const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
@@ -254,11 +254,16 @@ test("指先の5点が、いつも手前(-3cm)に推定されても、指先を�
   const biased = w.map((q, i) => ([4, 8, 12, 16, 20].includes(i) ? { ...q, z: q.z - 0.03 } : q));   // 指先だけ、手前に、3cm
   const p16 = framePose(handFrame(biased)), palm = framePose(handFrame(biased, PALM_POINTS)), all = framePose(handFrame(biased, ALL_POINTS));
   assert.ok(Math.abs(p16.tilt) < 0.5 && Math.abs(p16.pan) < 0.5, JSON.stringify(p16));
+  const p11 = framePose(handFrame(biased, POINTS11));
+  assert.ok(Math.abs(p11.tilt) < 0.5 && Math.abs(p11.pan) < 0.5, JSON.stringify(p11));
   assert.ok(Math.abs(palm.tilt) < 0.5 && Math.abs(palm.pan) < 0.5, JSON.stringify(palm));
   assert.ok(Math.abs(all.tilt) > 5, "21点の面は、偏りに、引きずられる: " + JSON.stringify(all));
   assert.deepEqual(PALM_POINTS, [0, 1, 5, 9, 13, 17]);
   assert.equal(ALL_POINTS.length, 21);
   assert.equal(POINTS16.length, 16);
+  assert.deepEqual(POINTS11, [0, 1, 2, 5, 6, 9, 10, 13, 14, 17, 18]);
+  assert.deepEqual(DIP_POINTS, [3, 7, 11, 15, 19]);
+  assert.ok(POINTS11.every((i) => POINTS16.includes(i)) && DIP_POINTS.every((i) => !POINTS11.includes(i)));
   assert.ok([4, 8, 12, 16, 20].every((i) => !POINTS16.includes(i)) && POINTS16.includes(0) && POINTS16.includes(19));
 });
 test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの6点の面は、そのまま。roll は、変わらない", () => {
@@ -267,6 +272,15 @@ test("指の関節・指先も、全部、手前に偏っていても(指を、�
   const biased = w.map((q, i) => (fingers.includes(i) ? { ...q, z: q.z - 0.02 } : q));
   const a = framePose(handFrame(w, PALM_POINTS)), b = framePose(handFrame(biased, PALM_POINTS));   // 手のひらの6点なら、指の偏りは、無関係
   assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));
+});
+
+test("指先と、指先に近い関節(第1関節)の10点が、手前に偏っていても、11点の面は、ずれない。16点の面は、少し、ずれる", () => {
+  const w = makeWorld({});
+  const bad = [3, 4, 7, 8, 11, 12, 15, 16, 19, 20];
+  const biased = w.map((q, i) => (bad.includes(i) ? { ...q, z: q.z - 0.03 } : q));
+  const p11 = framePose(handFrame(biased)), p16 = framePose(handFrame(biased, POINTS16));
+  assert.ok(Math.abs(p11.tilt) < 0.5 && Math.abs(p11.pan) < 0.5, JSON.stringify(p11));
+  assert.ok(Math.abs(p16.tilt) > 2, "16点の面は、第1関節の偏りに、引きずられる: " + JSON.stringify(p16));
 });
 
 // ---- 法線の矢印 ----

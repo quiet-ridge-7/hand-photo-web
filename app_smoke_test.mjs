@@ -136,12 +136,12 @@ try {
   check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
 
   await waitFor(`/pan\\s+[+-]\\s*\\d/.test(document.getElementById("pose-line").textContent)`, "向きの1行", 10000);
-  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s+\[21点: pan/.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
+  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*\[16点: pan.*\[21点: pan/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
 
   // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
   const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
-  const idx16 = [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19];   // 指先(4、8、12、16、20)を除いた 16点
-  const zs = idx16.map((i) => wd[i].z), iNear = idx16[zs.indexOf(Math.min(...zs))], iFar = idx16[zs.indexOf(Math.max(...zs))];
+  const idx11 = [0, 1, 2, 5, 6, 9, 10, 13, 14, 17, 18];   // 指先と、第1関節(3、4、7、8、11、12、15、16、19、20)を除いた 11点
+  const zs = idx11.map((i) => wd[i].z), iNear = idx11[zs.indexOf(Math.min(...zs))], iFar = idx11[zs.indexOf(Math.max(...zs))];
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
   await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
   const lmNow = await ev(`window.__handNow.landmarks`);
@@ -149,9 +149,9 @@ try {
   let cNear = await rgbAt(iNear), cFar = await rgbAt(iFar);
   for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
   check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
-  const cTip = await rgbAt(8);
-  check("B3f2 指先(8番)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Math.max(...cTip) - Math.min(...cTip) < 25 && cTip[0] > 120, JSON.stringify(cTip.map(Math.round)));
-  check("B3g 確認用の数字に、奥行き(depthMm。指先は x)が出る。チェックは、はじめから、オン。凡例がある", /"depthMm": "[^"]*x[^"]*x[^"]*x[^"]*x[^"]*x/.test(await text("#numbers-text")) && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
+  const cTip = await rgbAt(8), cDip = await rgbAt(7);
+  check("B3f2 指先(8番)と、第1関節(7番)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", [cTip, cDip].every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify({ tip: cTip.map(Math.round), dip: cDip.map(Math.round) }));
+  check("B3g 確認用の数字に、奥行き(depthMm。色を付けない10点は x)が出る。チェックは、はじめから、オン。凡例がある", (((await text("#numbers-text")).match(/"depthMm": "([^"]*)"/) || [])[1] || "").split(/[\s|]+/).filter((v) => v === "x").length === 10 && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
   await ev(`document.getElementById("depth-color").click(); true`);
   let cOff = await rgbAt(iNear);
   for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }

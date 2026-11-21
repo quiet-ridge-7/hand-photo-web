@@ -45,4 +45,4 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 #depth-legend { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 0.8rem; color: var(--sub); }
 #depth-legend .bar { flex: 1; height: 10px; border-radius: 5px; background: linear-gradient(to right, rgb(255, 50, 50), rgb(235, 235, 235), rgb(50, 110, 255)); }
 
-.pose { margin: 8px 0; padding: 8px 10px; background: var(--panel); border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 0.95rem; color: var(--text); }
+.pose { white-space: pre-line; margin: 8px 0; padding: 8px 10px; background: var(--panel); border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 0.95rem; color: var(--text); }

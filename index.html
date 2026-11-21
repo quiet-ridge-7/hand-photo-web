@@ -41,11 +41,11 @@
         <button type="button" id="shoot">撮影</button>
         <button type="button" id="flip">カメラを切り替える</button>
       </div>
-      <label class="opt"><input type="checkbox" id="depth-color" checked> 奥行きを、色で表す(16点の平均を 0 に)</label>
+      <label class="opt"><input type="checkbox" id="depth-color" checked> 奥行きを、色で表す(11点の平均を 0 に)</label>
       <div id="depth-legend" aria-label="奥行きの色の見かた">
         <span>近い</span><div class="bar"></div><span>遠い</span>
       </div>
-      <p class="sub" id="depth-note">灰色の指先5点を除く16点の平均が0。赤 = 近い / 青 = 遠い(±3cm)</p>
+      <p class="sub" id="depth-note">灰色の10点(指先と、その手前の関節)を除く 11点の平均が0。赤 = 近い / 青 = 遠い(±3cm)</p>
       <details id="numbers">
         <summary>確認用の数字</summary>
         <pre id="numbers-text">(手が映ると、数字が出ます)</pre>
