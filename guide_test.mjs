@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -201,6 +201,43 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
   assert.equal(handFrame([]), null);
   assert.equal(handFrame(makeWorld({}).map(() => ({ x: 0, y: 0, z: 0 }))), null);
   assert.equal(framePose(null), null);
+});
+
+// ---- 奥行き(平均を 0 に)と、色 ----
+test("奥行き: 平均を引くので、合計が 0。向きを変えても、平均が 0。点が足りなければ null", () => {
+  for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
+    const d = depthRelative(makeWorld(o));
+    assert.equal(d.length, 21);
+    assert.ok(Math.abs(d.reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
+  }
+  assert.equal(depthRelative(null), null);
+  assert.equal(depthRelative([]), null);
+  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 3 ? { x: 0, y: 0, z: NaN } : q))), null);
+});
+test("奥行き: 平らな手を、まっすぐ向けると、全部 0。pan で、ひねると、片側が近く、反対側が遠い", () => {
+  assert.ok(depthRelative(makeWorld({})).every((v) => Math.abs(v) < 1e-12));
+  const w = makeWorld({ pan: 30 }), d = depthRelative(w);
+  const left = w.findIndex((q) => q.x === Math.min(...w.map((p) => p.x))), right = w.findIndex((q) => q.x === Math.max(...w.map((p) => p.x)));
+  assert.ok(d[left] * d[right] < 0 && Math.abs(d[left]) > 0.01 && Math.abs(d[right]) > 0.01, JSON.stringify({ l: d[left], r: d[right] }));
+});
+test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤。遠い(+3cm)は、青。±3cm を超えても、それ以上は、濃くならない。真ん中は、中間", () => {
+  assert.deepEqual(depthColor(0), [235, 235, 235]);
+  assert.deepEqual(depthColor(-0.03), [255, 50, 50]);
+  assert.deepEqual(depthColor(0.03), [50, 110, 255]);
+  assert.deepEqual(depthColor(-0.2), depthColor(-0.03));
+  assert.deepEqual(depthColor(0.2), depthColor(0.03));
+  const half = depthColor(-0.015);
+  assert.ok(half[0] > 235 - 1 && half[1] > 50 && half[1] < 235 && half[2] > 50 && half[2] < 235, JSON.stringify(half));
+});
+test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順に、mm で出す。確認用の数字に、depthMm として、出る", () => {
+  const txt = depthText(makeWorld({ pan: 30 }));
+  assert.equal(txt.split("|").length, 6);
+  assert.equal(txt.replace(/\|/g, " ").trim().split(/\s+/).length, 21);
+  assert.equal(depthText(null), null);
+  const hand = makeHand({ facing: "palm" });
+  const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
+  assert.equal(r.numbers.depthMm, txt);
+  assert.equal(evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good }).numbers.depthMm, undefined);
 });
 
 // ---- 法線の矢印 ----

@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -132,7 +132,7 @@ function measureImage(lm, vw, vh) {
 }
 
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok, arrow = null) {
+function drawHand(lm, ok, arrow = null, depth = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
@@ -143,7 +143,17 @@ function drawHand(lm, ok, arrow = null) {
   octx.stroke();
   octx.fillStyle = ok ? "#4cc38a" : "#f0b429";
   const r = Math.max(3, w / 200);
-  for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
+  if (depth) {   // 奥行きを、色で表す(近い = 赤、平均 = 白、遠い = 青)。点を、少し大きくして、白い縁を、付ける
+    octx.strokeStyle = "rgba(0,0,0,0.6)";
+    octx.lineWidth = Math.max(1, w / 500);
+    lm.forEach((p, i) => {
+      const [cr, cg, cb] = depthColor(depth[i]);
+      octx.fillStyle = "rgb(" + cr + "," + cg + "," + cb + ")";
+      octx.beginPath(); octx.arc(p.x * w, p.y * h, r * 1.7, 0, Math.PI * 2); octx.fill(); octx.stroke();
+    });
+  } else {
+    for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
+  }
   if (arrow) drawNormal(arrow, w);
 }
 
@@ -224,7 +234,7 @@ function loop() {
     state.frames = [];
   }
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
-  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame));   // 法線(手のひら / 甲の向き)を、緑の矢印で
+  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;

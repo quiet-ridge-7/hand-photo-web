@@ -116,24 +116,41 @@ try {
   await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
 
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 20, tilt: -10 } });
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 20, tilt: -10 } });
   await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
   const nums = JSON.parse(await text("#numbers-text"));
   check("B3b 3次元の点を渡すと、「確認用の数字」に、手の点すべてからの pan・tilt・roll・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt -10、roll 0)", Math.abs(nums.pan - 20) < 1.5 && Math.abs(nums.tilt + 10) < 1.5 && Math.abs(nums.roll) < 1.5 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1.5 && nums.rms !== undefined, JSON.stringify(nums));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 0, tilt: 0, roll: 35 } });
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 0, tilt: 0, roll: 35 } });
   await waitFor(`Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).roll - 35) < 2`, "roll の数字", 8000);
   const nums2 = JSON.parse(await text("#numbers-text"));
   check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - 35) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
 
   // 法線の矢印(緑): pan 30度で、手のひらの中心から、右へ伸びる。まっすぐなら、中心の丸だけ
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 30, tilt: 0, roll: 0 } });
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
   await sleep(600);
   const greenAt = (xFrac) => ev(`(() => { const c = document.getElementById("overlay"); const x = Math.round(c.width * ${xFrac}), y = Math.round(c.height * 0.5); const d = c.getContext("2d").getImageData(Math.max(0, x - 40), Math.max(0, y - 60), 80, 120).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 80 && d[i + 1] > 200 && d[i + 2] < 120 && d[i + 3] > 200) n++; return n; })()`);
   const tipGreen = await greenAt(0.62);
   check("B3d pan 30度のとき、手のひらの中心から、右へ、緑の矢印が、伸びる(中心の右側に、緑の画素)", tipGreen > 20, String(tipGreen));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, world: { pan: 0, tilt: 0, roll: 0 } });
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 0, tilt: 0, roll: 0 } });
   await sleep(700);
   check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
+
+  // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
+  const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
+  const zs = wd.map((q) => q.z), iNear = zs.indexOf(Math.min(...zs)), iFar = zs.indexOf(Math.max(...zs));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
+  await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
+  const lmNow = await ev(`window.__handNow.landmarks`);
+  const rgbAt = (i) => ev(`(() => { const c = document.getElementById("overlay"); const p = ${JSON.stringify(lmNow[i])}; const d = c.getContext("2d").getImageData(Math.round(p.x * c.width) - 1, Math.round(p.y * c.height) - 1, 3, 3).data; let r = 0, g = 0, b = 0, n = 0; for (let k = 0; k < d.length; k += 4) { r += d[k]; g += d[k + 1]; b += d[k + 2]; n++; } return [r / n, g / n, b / n]; })()`);
+  let cNear = await rgbAt(iNear), cFar = await rgbAt(iFar);
+  for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
+  check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
+  check("B3g 確認用の数字に、奥行き(depthMm。21点)が出る。チェックは、はじめから、オン。凡例がある", /"depthMm"/.test(await text("#numbers-text")) && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
+  await ev(`document.getElementById("depth-color").click(); true`);
+  let cOff = await rgbAt(iNear);
+  for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }
+  check("B3h チェックを外すと、点は、ふつうの色(黄色: R と G が高く、B が低い)に、戻る", cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100, JSON.stringify(cOff.map(Math.round)));
+  await ev(`document.getElementById("depth-color").click(); true`);
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });

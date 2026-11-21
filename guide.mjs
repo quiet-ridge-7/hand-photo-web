@@ -179,6 +179,35 @@ export function framePose(f) {
   return { pan: deg(Math.atan2(f.ez.x, f.ez.z)), tilt: deg(Math.asin(clamp(-f.ez.y))), roll: deg(Math.atan2(f.ex.y, f.ey.y)), angle: deg(Math.acos(clamp(f.ez.z))), rms: f.rms };
 }
 
+// ---- 奥行き(平均を 0 にして、点ごとに、色で表す)----
+// 手の点21個の、奥行き(worldLandmarks の z。メートル)から、平均を引く(平均が、0 になる)。 戻り値: 21個の配列(メートル) | null
+//   z は、小さいほど、カメラに近い(MediaPipe の決まり)。 つまり、負 = 平均より、近い。 正 = 平均より、遠い。
+export function depthRelative(world) {
+  if (!world || world.length < 21) return null;
+  const zs = world.map((q) => (q ? q.z : NaN));
+  if (!zs.every(Number.isFinite)) return null;
+  const mean = zs.reduce((s, z) => s + z, 0) / zs.length;
+  return zs.map((z) => z - mean);
+}
+
+// 奥行き d(メートル。平均からの差)の色 [r, g, b]。 近い(負)= 赤、平均 = 白っぽい灰色、遠い(正)= 青。 range(メートル)で、いちばん濃くなる。
+export const DEPTH_RANGE = 0.03;   // ±3cm で、いちばん濃い色
+export function depthColor(d, range = DEPTH_RANGE) {
+  const t = Math.max(-1, Math.min(1, d / range));
+  const mid = [235, 235, 235], near = [255, 50, 50], far = [50, 110, 255];
+  const to = t < 0 ? near : far, k = Math.abs(t);
+  return mid.map((m, i) => Math.round(m + (to[i] - m) * k));
+}
+
+// 確認用の数字に出す、文字: 21点の、奥行き(平均からの差。ミリメートル)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順。
+export function depthText(world) {
+  const d = depthRelative(world);
+  if (!d) return null;
+  const mm = d.map((v) => Math.round(v * 1000));
+  const grp = (a, b) => mm.slice(a, b).join(" ");
+  return mm[0] + " | " + grp(1, 5) + " | " + grp(5, 9) + " | " + grp(9, 13) + " | " + grp(13, 17) + " | " + grp(17, 21);
+}
+
 // 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 手のひらの中心(手首と、4本の指の付け根の、平均)から、法線の、画面の向きへ。
 //   手前(カメラ側)を、向いているほど、短い(点に近い)。 30度で、画面の短い辺 × k × 0.5 の長さ。
 //   lm: 画面の中の位置(0〜1)。 f: handFrame / smoothFrame の戻り値。 frame: { w, h }(画素)。 戻り値(画素): { from, to, length } | null
@@ -341,6 +370,8 @@ export function evaluate(input) {
     const r1 = (v) => Math.round(v * 10) / 10;
     if (pose) { numbers.pan = r1(pose.pan); numbers.tilt = r1(pose.tilt); numbers.roll = r1(pose.roll); numbers.angle = r1(pose.angle); numbers.rms = r1(pose.rms); }
     if (three) { numbers.pan3 = r1(three.pan); numbers.tilt3 = r1(three.tilt); numbers.angle3 = r1(three.angle); }
+    const dtext = depthText(world);   // 21点の奥行き(平均を 0 に。mm)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指
+    if (dtext) numbers.depthMm = dtext;
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;
