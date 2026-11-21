@@ -89,13 +89,13 @@ try {
   await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "手のモデルの読み込み(WASM)", 40000);
   check("A2 本物の手のモデル(MediaPipe)が、読み込めた", true);
   await waitFor(`document.getElementById("guide").textContent.includes("手を、画面に、映してください")`, "手が無い時の、ガイド", 15000);
-  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(11)", (await ev(`document.querySelectorAll("#checks li").length`)) === 11, await text("#guide"));
+  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(12。右手のひらの番なので、『右手』の項目が入る)", (await ev(`document.querySelectorAll("#checks li").length`)) === 12, await text("#guide"));
   check("A3v 画面に、ファイルの版が出る(app と guide が、同じ。古いファイルが、混ざっていない)", /^版: app (v\d+) \/ guide \1$/.test(await text("#version")), await text("#version"));
   check("A4 手が無い時、枠は、緑にならない。撮影は、自動では、始まらない", !(await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await ev(`document.getElementById("result").hidden`)));
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
 
   // ---- B. 人工の手 ----
-  await load("?fake=1&capture=1");   // 撮影は、既定では、オフ。この試験は、撮影の流れも、確かめるので、オンにして開く
+  await load("?fake=1");   // 4つの撮影は、いつも、オン(自動の撮影の流れも、この画面で、確かめる)
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備", 20000);
   const V = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
   const setHand = (opts) => { const hnd = makeHand({ ...opts, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label })}; true`); };
@@ -133,68 +133,113 @@ try {
   gp = await guidePix();
   check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(白)", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
 
-  // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
+  // ---- 4つの撮影(右手のひら → 右手の甲 → 左手のひら → 左手の甲): 撮れたら、緑。次に撮る物を、案内する ----
+  const stepClass = (i) => ev(`document.querySelectorAll("#step-badges .badge")[${i}].classList[1]`);   // "done" | "current" | "todo"
+  const waitDone = (i, what) => waitFor(`document.querySelectorAll("#step-badges .badge")[${i}].classList.contains("done")`, what + "が、撮れる", 20000);
+  const diag = async () => console.log("   hold=" + (await ev(`document.getElementById("hold").value`)) + " ガイド=" + (await guide()) + " checks=" + (await ev(`[...document.querySelectorAll("#checks li")].map((l) => l.className + ":" + l.textContent).join(" | ")`)));
+  check("S0 先頭が『次(current)』。説明は『次は、「右手のひら」』。右の一覧は、まだ空(撮れた物だけが、並ぶ)", (await ev(`document.querySelectorAll("#steps li").length`)) === 0 && (await stepClass(0)) === "current" && /次は、「右手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+  check("S0b 映像の左上に、4つ(右手のひら・右手の甲・左手のひら・左手の甲)が、出る。先頭が、『次』(current)", (await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.textContent.replace(/^[✓▶] /, "")).join(",")`)) === "右手のひら,右手の甲,左手のひら,左手の甲" && (await ev(`document.querySelector("#step-badges .badge").classList.contains("current")`)) && !(await ev(`document.getElementById("step-badges").hidden`)));
+  await setHand({ hand: "left", facing: "palm", scale: 0.8 });   // 右手の番に、左手
+  await waitGuide("右手を、映してください(いまは、左手です)");
+  await sleep(1500);
+  check("S1 右手の番に、左手を映すと、『右手を、映してください(いまは、左手です)』。撮れない(1.5秒たっても、緑にならない)", (await stepClass(0)) === "current" && !(await ev(`document.getElementById("stage").classList.contains("ok")`)));
+  check("S1b 『いま見えている手』に、『左手の手のひら側』が、出る", /左手の手のひら側/.test(await text("#seen")), await text("#seen"));
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });
-  let gotResult = true;
-  try { await waitFor(`!document.getElementById("result").hidden`, "自動撮影", 12000); } catch { gotResult = false; }
-  if (!gotResult) {
-    console.log("   hold=" + (await ev(`document.getElementById("hold").value`)) + " checks=" + (await ev(`[...document.querySelectorAll("#checks li")].map((l) => l.className + ":" + l.textContent).join(" | ")`)));
-    console.log("   (自動撮影に、ならなかった。ガイド: " + (await guide()) + " / 数字: " + (await text("#numbers-text")).replace(/\s+/g, " ").slice(0, 300) + ")");
-  }
-  check("B4 条件が、全部そろった手を、約1秒、保つと、自動で撮れる(結果の画面が、出る)", gotResult);
-  if (gotResult) {
-    check("B5 撮れた写真が、出る(blob)。「撮れました(自動)」。カメラの画面は、隠れる", /^blob:/.test(await ev(`document.getElementById("shot").src`)) && /撮れました\(自動\)/.test(await text("#saved-note")) && (await ev(`document.getElementById("camera-view").hidden`)), await text("#saved-note"));
-    // 保存: 共有が、使えない時は、ダウンロード
-    await ev(`document.getElementById("save").click(); true`);
-    await sleep(300);
-    const dl = await ev(`window.__downloads`);
-    check("B6 共有が使えない端末では、ダウンロード(hand_palm_日付_時刻.jpg)", dl.length === 1 && /^hand_palm_\d{8}_\d{6}\.jpg$/.test(dl[0].download) && dl[0].href === "blob:", JSON.stringify(dl));
-    // 共有が使える端末(iPhone など): 共有の画面を、開く
-    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 1000])); }; true`);
-    await ev(`document.getElementById("save").click(); true`);
-    await sleep(300);
-    const shared = await ev(`window.__shared`);
-    check("B7 共有が使える端末では、共有の画面に、写真(jpeg)を、渡す。ダウンロードは、増えない", shared.length === 1 && shared[0][0][1] === "image/jpeg" && shared[0][0][2] === true && (await ev(`window.__downloads.length`)) === 1, JSON.stringify(shared));
-    await ev(`delete navigator.share; delete navigator.canShare; true`);
-    // もう一度撮る
-    await ev(`document.getElementById("again").click(); true`);
-    check("B8 「もう一度撮る」で、カメラの画面に、戻る(結果は、隠れる)", (await ev(`document.getElementById("result").hidden`)) && !(await ev(`document.getElementById("camera-view").hidden`)));
+  let got = true;
+  try { await waitDone(0, "右手のひら"); } catch { got = false; await diag(); }
+  check("S2 右手のひらを、約1秒、保つと、自動で撮れて、項目が、緑(done)になる", got);
+  if (got) {
+    check("S3 撮れた項目に、写真(blob)の小さな絵と、『保存』『撮り直す』が出る。次は『右手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 2 && (await stepClass(1)) === "current" && /次は、「右手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)) && (await ev(`document.getElementById("result").hidden`)), await text("#mode-help"));
+    check("S4 撮った直後の案内: 『撮れました: 右手のひら。次は、右手の甲です』。『右手のひらを、撮りました』と、出る。『全部、保存(1枚)』が、押せる", /撮れました: 右手のひら。次は、右手の甲です/.test(await guide()) && /右手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "全部、保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
+    check("S5 次は右手の甲なので、手のひらの手では、案内が『手の甲を、カメラに、向けてください』(チェックの項目名は、『手の甲側』)", await (async () => { await waitGuide("手の甲を、カメラに、向けてください"); return (await ev(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`)); })());
+    // 1つだけ、保存(共有が、使えない端末では、ダウンロード)
+    await ev(`document.querySelector('#steps li.done button[data-act="save"]').click(); true`);
+    await sleep(700);
+    const dl1 = await ev(`window.__downloads`);
+    check("S6 「保存」で、その1枚が、ダウンロードされる(hand_right_palm_日付_時刻.jpg)", dl1.length === 1 && /^hand_right_palm_\d{8}_\d{6}\.jpg$/.test(dl1[0].download) && dl1[0].href === "blob:", JSON.stringify(dl1));
+    // 残りの3つ
     await setHand({ hand: "right", facing: "back", scale: 0.8 });
-    await waitGuide("手のひらを、カメラに、向けてください");
-    check("B9 戻った後も、検出が、続いている", true);
+    let g2 = true; try { await waitDone(1, "右手の甲"); } catch { g2 = false; await diag(); }
+    check("S7 右手の甲が、撮れて、緑になる。次は『左手のひら』", g2 && (await stepClass(2)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+    await setHand({ hand: "left", facing: "palm", scale: 0.8 });
+    let g3 = true; try { await waitDone(2, "左手のひら"); } catch { g3 = false; await diag(); }
+    check("S8 左手のひらが、撮れて、緑になる。次は『左手の甲』", g3 && (await stepClass(3)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")), await text("#mode-help"));
+    await setHand({ hand: "left", facing: "back", scale: 0.8 });
+    let g4 = true; try { await waitDone(3, "左手の甲"); } catch { g4 = false; await diag(); }
+    check("S9 左手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『全部、保存(4枚)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(4枚)", await guide());
+    await ev(`window.__handNow = null; true`);
+    await sleep(500);
+    check("S9b 全部、撮れたら、枠は緑。ガイド(うすい形)は、出さない(手が無い画面で、ガイドの画素が、0)", (await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await guidePix()).n === 0, JSON.stringify(await guidePix()));
+    check("S9c 左上の4つ(2 × 2)が、全部、緑(done)。左の列 = 右手のひら・右手の甲、右の列 = 左手のひら・左手の甲", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b[0].left === b[1].left && b[2].left === b[3].left && b[2].left > b[0].left && b[1].top > b[0].top && b[3].top > b[2].top && b[0].top > st.top && b[0].left > st.left && b[0].left - st.left < 20; })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
+    // 全部、保存: 共有が使えない端末は、4つのダウンロード。使える端末は、共有の画面に、4枚を、渡す
+    await ev(`document.getElementById("save-all").click(); true`);
+    await sleep(1800);
+    const dl4 = await ev(`window.__downloads`);
+    check("S10 「全部、保存」で、4枚が、ダウンロードされる(右手のひら、右手の甲、左手のひら、左手の甲の、ファイル名)", dl4.length === 5 && ["right_palm", "right_back", "left_palm", "left_back"].every((k) => dl4.slice(1).some((d) => new RegExp("^hand_" + k + "_\\d{8}_\\d{6}\\.jpg$").test(d.download))), JSON.stringify(dl4.map((d) => d.download)));
+    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 1000])); }; true`);
+    await ev(`document.getElementById("save-all").click(); true`);
+    await sleep(500);
+    const sh = await ev(`window.__shared`);
+    check("S11 共有が使える端末(iPhone など)では、4枚(jpeg)を、まとめて、共有の画面に、渡す。ダウンロードは、増えない", sh.length === 1 && sh[0].length === 4 && sh[0].every((f) => f[1] === "image/jpeg" && f[2] === true) && (await ev(`window.__downloads.length`)) === 5, JSON.stringify(sh));
+    await ev(`delete navigator.share; delete navigator.canShare; true`);
+    // 撮り直す
+    await ev(`document.querySelector('#steps li.done button[data-act="retake"]').click(); true`);
+    check("S12 「撮り直す」で、その項目が、『次(current)』に戻り、案内が、変わる。『全部、保存(3枚)』", (await stepClass(0)) === "current" && /次は、「右手のひら」/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(3枚)", await text("#mode-help"));
+    // 最初から(確認の窓は、「はい」にして)、そのあと、まだ撮っていない項目を、押して、次に撮る物を、変える
+    await ev(`window.confirm = () => true; document.getElementById("reset-all").click(); true`);
+    check("S13 「最初から、撮り直す」で、全部、未(todo)に戻り、先頭が『次』。『全部、保存(0枚)』は、押せない", (await ev(`document.querySelectorAll("#steps li.done").length`)) === 0 && (await stepClass(0)) === "current" && (await ev(`document.getElementById("save-all").disabled`)), await text("#save-all"));
+    await ev(`document.querySelectorAll("#step-badges .badge")[2].click(); true`);
+    check("S14 左上の、まだ撮っていない項目(左手のひら)を押すと、それが、『次』になる。説明も、変わる", (await stepClass(2)) === "current" && (await stepClass(0)) === "todo" && /次は、「左手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+    // 手動の「撮影」ボタン: 条件が、そろっていなくても、いまの項目を、撮る
+    await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
+    check("S15 「撮影」ボタンは、4つの撮影では、見えている", !(await ev(`document.getElementById("shoot").hidden`)));
+    await ev(`document.getElementById("shoot").click(); true`);
+    let gm = true; try { await waitDone(2, "手動の撮影"); } catch { gm = false; }
+    check("S16 「撮影」ボタンで、いつでも、手動で撮れる(いまの項目が、緑になる)", gm && /左手のひらを、撮りました/.test(await text("#seq-note")), await text("#seq-note"));
   }
 
-  // モードの切り替え
-  await ev(`document.querySelector('#modes button[data-mode="back"]').click(); true`);
-  await waitFor(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`, "手の甲モードの項目", 5000);
-  check("B10 「手の甲」を選ぶと、説明が変わり、チェック項目は、「手の甲側」になる", /手の甲側を/.test(await text("#mode-help")) && (await ev(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`)), await text("#mode-help"));
-  await waitFor(`!document.getElementById("guide").textContent.includes("手のひらを")`, "甲モードのガイド", 5000);
+  // モードの切り替え: 指先(従来の、撮影後の画面。この節は、?capture=1 で開く)
+  await load("?fake=1&capture=1");
+  await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(指先)", 20000);
   await ev(`document.querySelector('#modes button[data-mode="tip"]').click(); true`);
-  await waitFor(`document.querySelectorAll("#checks li").length > 0`, "指先モードの項目", 5000);
-  check("B11 「指先」を選ぶと、「5本まとめて / 1本ずつ」が、出る。チェック項目は、指先用(8項目)", !(await ev(`document.getElementById("tip-sub").hidden`)) && (await ev(`document.querySelectorAll("#checks li").length`)) === 8, String(await ev(`document.querySelectorAll("#checks li").length`)));
+  await waitFor(`document.querySelectorAll("#checks li").length > 0 && document.getElementById("seq-panel").hidden`, "指先モードの項目", 5000);
+  check("B11 「指先」を選ぶと、4つの一覧は、隠れ、「5本まとめて / 1本ずつ」が、出る。チェック項目は、指先用(8項目)", !(await ev(`document.getElementById("tip-sub").hidden`)) && (await ev(`document.getElementById("seq-panel").hidden`)) && (await ev(`document.getElementById("step-badges").hidden`)) && (await ev(`document.querySelectorAll("#checks li").length`)) === 8, String(await ev(`document.querySelectorAll("#checks li").length`)));
   await ev(`document.querySelector('#tip-sub button[data-sub="tip1"]').click(); true`);
   check("B12 「1本ずつ」に切り替わる(説明が、変わる)", /撮りたい指/.test(await text("#mode-help")), await text("#mode-help"));
   await ev(`window.__handNow = null; true`);
   await sleep(500);
   const gpTip = await guidePix();
   check("G4 指先モードでは、ガイド(うすい形)は、出さない", gpTip.n === 0, JSON.stringify(gpTip));
-  await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });
-  await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
-  check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
+  check("B21 指先モードは、?capture=1 の時だけ、「撮影」ボタンが、見える。この画面(?capture=1)では、見える", !(await ev(`document.getElementById("shoot").hidden`)));
+  await ev(`document.querySelector('#modes button[data-mode="seq"]').click(); true`);
+  check("B13 「手のひら・手の甲」に戻すと、指先の選択は、隠れ、4つの一覧が、出る", (await ev(`document.getElementById("tip-sub").hidden`)) && !(await ev(`document.getElementById("seq-panel").hidden`)));
 
-  // 撮影が、オフの時(既定): 条件がそろっても、撮らない。検出は、続く。「撮影」ボタンも、無い
-  await load("?fake=1");
+  // 指先モードの、手動の撮影(従来の、撮影後の画面): 撮る・保存・もう一度
+  await ev(`document.querySelector('#modes button[data-mode="tip"]').click(); true`);
+  await ev(`document.getElementById("shoot").click(); true`);
+  await waitFor(`!document.getElementById("result").hidden`, "指先の手動の撮影", 5000);
+  check("B14 指先モード: 「撮影」ボタンで、撮れる。撮影後の画面が、出る(blob)", /撮りました/.test(await text("#saved-note")) && /^blob:/.test(await ev(`document.getElementById("shot").src`)) && (await ev(`document.getElementById("camera-view").hidden`)), await text("#saved-note"));
+  await ev(`window.__downloads.length = 0; document.getElementById("save").click(); true`);
+  await sleep(400);
+  const dlTip = await ev(`window.__downloads`);
+  check("B6 指先モード: 「写真に保存」で、ダウンロード(hand_tip5 または tip1 _日付_時刻.jpg)", dlTip.length === 1 && /^hand_tip[15]_\d{8}_\d{6}\.jpg$/.test(dlTip[0].download), JSON.stringify(dlTip));
+  await ev(`document.getElementById("again").click(); true`);
+  check("B8 「もう一度撮る」で、カメラの画面に、戻る(結果は、隠れる)", (await ev(`document.getElementById("result").hidden`)) && !(await ev(`document.getElementById("camera-view").hidden`)));
+  await ev(`document.querySelector('#modes button[data-mode="seq"]').click(); true`);
+
+  // 撮影を切る(?capture=0): 条件がそろっても、撮らない。検出は、続く。「撮影」ボタンも、無い
+  await load("?fake=1&capture=0");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オフ)", 20000);
-  check("B21 撮影がオフの時は、「撮影」ボタンが、隠れている", await ev(`document.getElementById("shoot").hidden`));
+  check("B22a ?capture=0 では、「撮影」ボタンが、隠れている", await ev(`document.getElementById("shoot").hidden`));
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });
-  await waitGuide("そろいました(撮影は、いまは、オフです)");
+  await waitGuide("そのまま、止めてください");
   await sleep(2500);
-  check("B22 条件が、全部そろっても、撮らない(結果の画面は、出ない)。枠は、緑のまま、検出が、続く(手を変えると、ガイドが、変わる)", (await ev(`document.getElementById("result").hidden`)) && (await ev(`document.getElementById("stage").classList.contains("ok")`)));
+  check("B22 条件が、全部そろっても、撮らない(項目は、緑にならない)。枠は、緑のまま、検出が、続く", (await stepClass(0)) === "current" && (await ev(`document.getElementById("stage").classList.contains("ok")`)), await stepClass(0));
   await setHand({ hand: "right", facing: "back", scale: 0.8 });
   await waitGuide("手のひらを、カメラに、向けてください");
   check("B23 そのあとも、検出が、続いている(手の甲に変えると、ガイドが、変わる)", true);
-  await setHand({ hand: "right", facing: "palm", scale: 0.8 });
-  await load("?fake=1&capture=1");
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
+  await load("?fake=1");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オン)", 20000);
 
   // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
@@ -209,12 +254,6 @@ try {
   pl = await place();
   check("B20 狭い画面(390)では、1列(チェックが、映像の、下)。横に、はみ出さない", pl.checks.top >= pl.stage.bottom - 1 && (await ev(`document.documentElement.scrollWidth <= window.innerWidth + 1`)), JSON.stringify({ stageBottom: pl.stage.bottom, checksTop: pl.checks.top }));
   await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
-
-  // 手動の撮影
-  await ev(`document.getElementById("shoot").click(); true`);
-  await waitFor(`!document.getElementById("result").hidden`, "手動の撮影", 5000);
-  check("B14 「撮影」ボタンで、いつでも、手動で撮れる", /撮りました/.test(await text("#saved-note")), await text("#saved-note"));
-  await ev(`document.getElementById("again").click(); true`);
 
   // カメラの切り替え
   await ev(`document.getElementById("flip").click(); true`);

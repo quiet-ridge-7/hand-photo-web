@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v13";
+export const VERSION = "v14";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -306,10 +306,11 @@ export const MODES = {
 };
 
 // チェック項目の、一覧(画面に出す、順番)。 id と、短い名前
-export function checkList(mode) {
+export function checkList(mode, wantHand = null) {
   const common = [{ id: "hand", label: "手が見えている" }];
   if (mode === "palm" || mode === "back") {
-    return [...common, { id: "inside", label: "画面に入っている" }, { id: "size", label: "近さ" }, { id: "center", label: "中央" },
+    const side = wantHand ? [{ id: "side", label: wantHand === "right" ? "右手" : "左手" }] : [];   // 撮る手(右 / 左)が、合っているか
+    return [...common, ...side, { id: "inside", label: "画面に入っている" }, { id: "size", label: "近さ" }, { id: "center", label: "中央" },
       { id: "facing", label: mode === "palm" ? "手のひら側" : "手の甲側" }, { id: "flat", label: "まっすぐ" },
       { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" },
       { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
@@ -318,12 +319,42 @@ export function checkList(mode) {
     { id: "tipcenter", label: "中央" }, { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
 }
 
-// 判定。 input: { mode, landmarks(21個 | null), label("Left" | "Right"), frame({w, h}), motion(動き), brightness(0〜255 | null), sharp(くっきり度 | null) }
+// ---- 撮る順番(手のひら・手の甲 × 右手・左手) ----
+export const STEPS = [
+  { id: "right-palm", hand: "right", mode: "palm", label: "右手のひら" },
+  { id: "right-back", hand: "right", mode: "back", label: "右手の甲" },
+  { id: "left-palm", hand: "left", mode: "palm", label: "左手のひら" },
+  { id: "left-back", hand: "left", mode: "back", label: "左手の甲" },
+];
+
+// 次に撮る物の番号。 current の次から、一周して、まだ撮っていない物を探す。 全部、撮れていれば -1。 current が -1 なら、先頭から。
+export function nextStep(doneFlags, current = -1) {
+  const n = STEPS.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (((current + k) % n) + n) % n;
+    if (!doneFlags[i]) return i;
+  }
+  return -1;
+}
+
+// 撮り方の説明(1つ分)
+export function stepHelp(step) {
+  const hand = step.hand === "right" ? "右手" : "左手";
+  return step.mode === "palm" ? hand + "の、手のひら側を、カメラに向けて、指を開きます。" : hand + "の、手の甲側を、カメラに向けて、指を開きます。";
+}
+
+// 保存する時の、ファイル名。 例: hand_right_palm_20261121_150000.jpg
+export function stepFileName(step, date) {
+  const p2 = (n) => String(n).padStart(2, "0");
+  return "hand_" + step.hand + "_" + step.mode + "_" + date.getFullYear() + p2(date.getMonth() + 1) + p2(date.getDate()) + "_" + p2(date.getHours()) + p2(date.getMinutes()) + p2(date.getSeconds()) + ".jpg";
+}
+
+// 判定。 input: { mode, landmarks(21個 | null), label("Left" | "Right"), frame({w, h}), motion(動き), brightness(0〜255 | null), sharp(くっきり度 | null), wantHand(撮る手 "right" | "left" | 省略) }
 //   戻り値: { checks: [{ id, label, ok, msg }], allOk, guide, numbers }
 //   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
 export function evaluate(input) {
   const { mode, landmarks: lm, label, frame, motion, brightness, sharp } = input;
-  const list = checkList(mode);
+  const list = checkList(mode, input.wantHand);
   const numbers = {};
   const msgs = {};   // id → 直す、ガイドの文(ok の時は、無い)
   const ok = {};
@@ -334,6 +365,10 @@ export function evaluate(input) {
   if (lm) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
+    if ((mode === "palm" || mode === "back") && input.wantHand) {   // 撮る手(右 / 左)が、合っているか
+      ok.side = face.hand === input.wantHand;
+      if (!ok.side) msgs.side = (input.wantHand === "right" ? "右手" : "左手") + "を、映してください(いまは、" + (face.hand === "right" ? "右手" : "左手") + "です)";
+    }
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;

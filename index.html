@@ -11,11 +11,10 @@
 <body>
 <main>
   <h1>手の撮影</h1>
-  <p class="sub">手のひら・手の甲・指先を、ガイドに合わせて、撮ります。</p>
+  <p class="sub">手のひら・手の甲(右手・左手)を、順番に、ガイドに合わせて、撮ります。指先は、別のモードです。</p>
 
   <div id="modes" class="seg" role="group" aria-label="撮り方">
-    <button type="button" data-mode="palm" class="on">手のひら</button>
-    <button type="button" data-mode="back">手の甲</button>
+    <button type="button" data-mode="seq" class="on">手のひら・手の甲(右・左)</button>
     <button type="button" data-mode="tip">指先</button>
   </div>
   <div id="tip-sub" class="seg seg2" role="group" aria-label="指先の撮り方" hidden>
@@ -29,10 +28,20 @@
       <div id="stage">
         <video id="video" autoplay muted playsinline></video>
         <canvas id="overlay"></canvas>
+        <div id="step-badges" aria-label="撮る順番(右手 左手 × 手のひら 手の甲)"></div>
         <div id="guide" role="status" aria-live="polite">準備しています…</div>
       </div>
     </div>
     <div id="right">
+      <div id="seq-panel">
+        <ol id="steps"></ol>
+        <p id="seen" class="sub">いま見えている手: (なし)</p>
+        <div class="btns">
+          <button type="button" id="save-all" class="primary" disabled>全部、保存(0枚)</button>
+          <button type="button" id="reset-all" disabled>最初から、撮り直す</button>
+        </div>
+        <p id="seq-note" class="sub"></p>
+      </div>
       <progress id="hold" max="1" value="0"></progress>
       <ul id="checks"></ul>
       <p id="status" class="sub">カメラを準備しています…</p>
@@ -61,7 +70,7 @@
     <summary>このアプリについて</summary>
     <p>映像と写真は、あなたの端末の中だけで、処理します。サーバーには、送りません。</p>
     <p>撮影を助ける、ガイドです。医療の判定では、ありません。手の向きや、指の開き方の判定は、ずれることがあります。</p>
-    <p>写真は、「写真に保存」を押した時だけ、あなたの端末に、保存します(iPhone は、共有の画面が、開きます)。</p>
+    <p>撮った写真は、この端末の、メモリの中に、置きます(ページを閉じると、消えます)。「保存」を押した時だけ、あなたの端末に、保存します(iPhone は、共有の画面が、開きます)。</p>
     <p>このサイトを、置いているサービスには、ページを開いた記録(アクセス記録)が、残ることがあります。</p>
     <p>手の検出に、Google の MediaPipe(Apache License 2.0)を、使っています。</p>
   </details>

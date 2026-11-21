@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -250,6 +250,42 @@ test("ガイドとの一致: withShape を false にすると、形だけ(shape)
   assert.equal(light.shape, null);
   assert.equal(light.overlap, full.overlap);
   assert.ok(full.shape != null);
+});
+
+// ---- 右手・左手に分けた、撮る順番 ----
+test("撮る順番: 右手のひら → 右手の甲 → 左手のひら → 左手の甲。手の左右・モードが、合っている", () => {
+  assert.deepEqual(STEPS.map((s) => s.id), ["right-palm", "right-back", "left-palm", "left-back"]);
+  assert.deepEqual(STEPS.map((s) => s.hand + "/" + s.mode), ["right/palm", "right/back", "left/palm", "left/back"]);
+});
+test("次に撮る物: 先頭から。撮れた物は、飛ばす。一周して、戻る。全部、撮れたら -1", () => {
+  assert.equal(nextStep([false, false, false, false], -1), 0);
+  assert.equal(nextStep([true, false, false, false], 0), 1);
+  assert.equal(nextStep([true, true, true, false], 2), 3);
+  assert.equal(nextStep([false, true, true, true], 3), 0);   // 一周して、戻る
+  assert.equal(nextStep([true, false, true, true], 3), 1);
+  assert.equal(nextStep([true, true, true, true], 3), -1);
+  assert.equal(nextStep([true, false, false, false], 3), 1);
+  assert.equal(nextStep([false, true, false, false], 1), 2);
+});
+test("説明の文と、ファイル名", () => {
+  assert.equal(stepHelp(STEPS[0]), "右手の、手のひら側を、カメラに向けて、指を開きます。");
+  assert.equal(stepHelp(STEPS[3]), "左手の、手の甲側を、カメラに向けて、指を開きます。");
+  assert.equal(stepFileName(STEPS[1], new Date(2026, 10, 21, 9, 5, 7)), "hand_right_back_20261121_090507.jpg");
+  assert.equal(stepFileName(STEPS[2], new Date(2026, 10, 21, 15, 0, 0)), "hand_left_palm_20261121_150000.jpg");
+});
+test("撮る手の確認: 右手を撮る時に、左手が映ると『右手を、映してください(いまは、左手です)』。手のひらか甲かの文より、先", () => {
+  const left = makeHand({ hand: "left", facing: "back" });   // 左手の甲 を、右手のひらの番で
+  const r = run("palm", left, { wantHand: "right" });
+  assert.ok(!r.allOk && r.checks.find((c) => c.id === "side").ok === false && r.guide === "右手を、映してください(いまは、左手です)", r.guide);
+  const l2 = run("palm", makeHand({ hand: "left", facing: "palm" }), { wantHand: "left" });
+  assert.ok(l2.allOk && l2.checks.find((c) => c.id === "side").label === "左手");
+  assert.ok(run("back", makeHand({ hand: "right", facing: "back" }), { wantHand: "right" }).allOk);
+  assert.ok(run("back", makeHand({ hand: "left", facing: "back" }), { wantHand: "right" }).guide.startsWith("右手を"));
+});
+test("撮る手の確認: 指定しなければ、チェック項目は、増えない。指先モードにも、無い", () => {
+  assert.ok(!checkList("palm").some((c) => c.id === "side") && checkList("palm", "right").some((c) => c.id === "side") && checkList("back", "left").some((c) => c.id === "side"));
+  assert.ok(!checkList("tip5", "right").some((c) => c.id === "side") && !checkList("tip1", "left").some((c) => c.id === "side"));
+  assert.equal(checkList("palm", "right").length, checkList("palm").length + 1);
 });
 
 // ---- 続ける時間 ----
