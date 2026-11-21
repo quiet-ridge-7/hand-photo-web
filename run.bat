@@ -5,4 +5,4 @@ set PORT=8784
 cd /d "%~dp0"
 echo Open: http://localhost:%PORT%/
 start "" "http://localhost:%PORT%/"
-python -m http.server %PORT% --bind 127.0.0.1
+python serve.py %PORT%

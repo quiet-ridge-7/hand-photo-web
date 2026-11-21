@@ -1,7 +1,9 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, facingOf, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
+import { T, MODES, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
+
+const APP_VERSION = "v12";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -311,6 +313,7 @@ $("again").addEventListener("click", again);
 if (!CAPTURE_ENABLED) $("shoot").hidden = true;   // 撮影が、オフの間は、「撮影」ボタンも、隠す
 if (window.matchMedia && window.matchMedia("(min-width: 900px)").matches) $("numbers").open = true;   // 広い画面(PC)では、確認用の数字を、手と一緒に見られるよう、はじめから、開いておく
 renderModeHelp();
+$("version").textContent = "版: app " + APP_VERSION + " / guide " + VERSION + (APP_VERSION === VERSION ? "" : "  ← 違います。古いファイルが、混ざっています。Ctrl+F5 を、押してください");
 startCamera();
 (async function boot() {
   try {
