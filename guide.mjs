@@ -170,83 +170,6 @@ export function guideMatch(lm, guide, frame) {
   return { overlap, shape };
 }
 
-// ---- 輪郭(画面の中の、手の形) ----
-// 21点の、いちばん外側を結んだ、凸の形(凸包)。 画素の点の、並び(時計回りか、反時計回りか)で返す。
-//   指の間は、ふくらむので、粗い輪郭。(本物の輪郭は、画像分割モデルが、必要)
-export function convexHull(pts) {
-  const p = pts.map((q) => ({ x: q.x, y: q.y })).sort((a, b) => a.x - b.x || a.y - b.y);
-  if (p.length < 3) return p;
-  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-  const lower = [], upper = [];
-  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
-  for (const q of [...p].reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
-  lower.pop(); upper.pop();
-  return lower.concat(upper);
-}
-
-// 輪郭の形の数字(画面の中の、2次元だけ。向きに、よらない)。
-//   指の向き = 手首(0)から中指の付け根(9)。 length = 輪郭の、指の向きの、長さ。 width = 指の向きに、直角の、幅。
-//   area = 輪郭の面積。 areaNorm = area ÷ (手首〜中指の付け根)^2。 palmW / palmL = 手のひらの幅(人差し指の付け根 5 〜 小指の付け根 17)/ 長さ(0 〜 9)。
-//   手を、カメラに対して傾けると、傾けた方向の、幅(か長さ)が、縮む。
-export function outlineShape(lm, frame) {
-  if (!lm || lm.length < 21) return null;
-  const P = lm.map((q) => px(q, frame));
-  const hull = convexHull(P);
-  const palmL = dist(P[LM.WRIST], P[LM.MIDDLE_MCP]);
-  if (hull.length < 3 || palmL < 1e-6) return null;
-  const u = { x: (P[LM.MIDDLE_MCP].x - P[LM.WRIST].x) / palmL, y: (P[LM.MIDDLE_MCP].y - P[LM.WRIST].y) / palmL };
-  const along = hull.map((q) => q.x * u.x + q.y * u.y), across = hull.map((q) => -q.x * u.y + q.y * u.x);
-  const length = Math.max(...along) - Math.min(...along), width = Math.max(...across) - Math.min(...across);
-  let area = 0;
-  for (let i = 0; i < hull.length; i++) { const a = hull[i], b = hull[(i + 1) % hull.length]; area += a.x * b.y - b.x * a.y; }
-  area = Math.abs(area) / 2;
-  const palmW = dist(P[LM.INDEX_MCP], P[LM.PINKY_MCP]);
-  return { hull, length, width, ratio: width / length, area, areaNorm: area / (palmL * palmL), palmW, palmL, palmRatio: palmW / palmL };
-}
-
-// ---- 分割モデル(対話型)で、実際の輪郭を取る ----
-// 手の点から、「ここは手です」と教える線(正の筆跡)を作る。 手のひらの真ん中と、親指・各指の付け根から先まで。 座標は 0〜1。
-export function handStrokes(lm) {
-  if (!lm || lm.length < 21) return [];
-  const clamp = (v) => Math.max(0.001, Math.min(0.999, v));
-  const pt = (i) => ({ x: clamp(lm[i].x), y: clamp(lm[i].y) });
-  const mid = (ids) => ({ x: clamp(ids.reduce((s, i) => s + lm[i].x, 0) / ids.length), y: clamp(ids.reduce((s, i) => s + lm[i].y, 0) / ids.length) });
-  const stroke = (point) => ({ brushMode: 1, point, isCompleted: true });
-  return [
-    stroke([mid([0, 5, 9, 13, 17]), mid([0, 9])]),                       // 手のひら
-    stroke([pt(1), pt(2), pt(3), pt(4)]),                                // 親指
-    ...FINGERS.map((f) => stroke([pt(f.mcp), pt(f.pip), pt(f.dip), pt(f.tip)])),   // 4本の指
-  ];
-}
-
-// 分割の地図(mask: 0〜1 の数字が、幅 mw × 高さ mh 並んだ物)から、手の形の数字を出す。 thr 以上の所が、手。
-//   area = 面積(画素)、areaNorm = area ÷ (手首〜中指の付け根)^2、length / width = 指の向きの、長さ / 直角の幅(画素)、ratio = width ÷ length。
-export function maskStats(mask, mw, mh, lm, frame, thr = 0.5) {
-  if (!mask || !lm || lm.length < 21) return null;
-  const P0 = px(lm[LM.WRIST], frame), P9 = px(lm[LM.MIDDLE_MCP], frame);
-  const palmL = dist(P0, P9);
-  if (palmL < 1e-6) return null;
-  const u = { x: (P9.x - P0.x) / palmL, y: (P9.y - P0.y) / palmL };
-  const sx = frame.w / mw, sy = frame.h / mh;
-  let n = 0, aMin = Infinity, aMax = -Infinity, cMin = Infinity, cMax = -Infinity;
-  for (let j = 0; j < mh; j++) {
-    for (let i = 0; i < mw; i++) {
-      if (mask[j * mw + i] < thr) continue;
-      const x = (i + 0.5) * sx, y = (j + 0.5) * sy;
-      const a = x * u.x + y * u.y, c = -x * u.y + y * u.x;
-      n++;
-      if (a < aMin) aMin = a;
-      if (a > aMax) aMax = a;
-      if (c < cMin) cMin = c;
-      if (c > cMax) cMax = c;
-    }
-  }
-  if (n === 0) return null;
-  const area = n * sx * sy;
-  const length = aMax - aMin + Math.abs(u.x) * sx + Math.abs(u.y) * sy, width = cMax - cMin + Math.abs(u.y) * sx + Math.abs(u.x) * sy;   // 端のマスの、半分ずつを、足す
-  return { area, areaNorm: area / (palmL * palmL), length, width, ratio: width / length };
-}
-
 // 手が、画面の中に、全部、入っているか
 export function insideFrame(lm, edge = T.edge) {
   return lm.every((p) => p.x >= edge && p.x <= 1 - edge && p.y >= edge && p.y <= 1 - edge);
@@ -385,38 +308,6 @@ export function framePose(f) {
   const deg = (r) => (r * 180) / Math.PI;
   const clamp = (v) => Math.max(-1, Math.min(1, v));
   return { pan: deg(Math.atan2(f.ez.x, f.ez.z)), tilt: deg(Math.asin(clamp(-f.ez.y))), roll: deg(Math.atan2(f.ex.y, f.ey.y)), angle: deg(Math.acos(clamp(f.ez.z))), rms: f.rms };
-}
-
-// ---- 奥行き(平均を 0 にして、点ごとに、色で表す)----
-// 手の点の、奥行き(worldLandmarks の z。メートル)から、平均を引く(平均が、0 になる)。 平均は、points(既定は、8点)だけで、取る。
-//   戻り値: 21個の配列(メートル。points に無い点(13点)は、null) | null
-//   z は、小さいほど、カメラに近い(MediaPipe の決まり)。 つまり、負 = 平均より、近い。 正 = 平均より、遠い。
-export function depthRelative(world, points = POINTS8) {
-  if (!world || world.length < 21) return null;
-  const zs = points.map((i) => (world[i] ? world[i].z : NaN));
-  if (!zs.every(Number.isFinite)) return null;
-  const mean = zs.reduce((s, z) => s + z, 0) / zs.length;
-  const out = new Array(21).fill(null);
-  points.forEach((i, k) => { out[i] = zs[k] - mean; });
-  return out;
-}
-
-// 奥行き d(メートル。平均からの差)の色 [r, g, b]。 近い(負)= 赤、平均 = 白っぽい灰色、遠い(正)= 青。 range(メートル)で、いちばん濃くなる。
-export const DEPTH_RANGE = 0.03;   // ±3cm で、いちばん濃い色
-export function depthColor(d, range = DEPTH_RANGE) {
-  const t = Math.max(-1, Math.min(1, d / range));
-  const mid = [235, 235, 235], near = [255, 50, 50], far = [50, 110, 255];
-  const to = t < 0 ? near : far, k = Math.abs(t);
-  return mid.map((m, i) => Math.round(m + (to[i] - m) * k));
-}
-
-// 確認用の数字に出す、文字: 21点の、奥行き(平均からの差。ミリメートル)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順。 色を付けない点(13点)は、x。
-export function depthText(world) {
-  const d = depthRelative(world);
-  if (!d) return null;
-  const mm = d.map((v) => (v == null ? "x" : String(Math.round(v * 1000))));
-  const grp = (a, b) => mm.slice(a, b).join(" ");
-  return mm[0] + " | " + grp(1, 5) + " | " + grp(5, 9) + " | " + grp(9, 13) + " | " + grp(13, 17) + " | " + grp(17, 21);
 }
 
 // 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 面の計算に使う点(既定は、8点)の中心から、法線の、画面の向きへ。
@@ -588,8 +479,6 @@ export function evaluate(input) {
     if (f16) { const p16 = framePose(f16); numbers.pan16 = r1(p16.pan); numbers.tilt16 = r1(p16.tilt); }
     const palmFrame = world ? handFrame(world, PALM_POINTS) : null;   // 手のひらの6点の面(比べるため)
     if (palmFrame) { const pp = framePose(palmFrame); numbers.panPalm = r1(pp.pan); numbers.tiltPalm = r1(pp.tilt); }
-    const dtext = depthText(world);   // 21点の奥行き(平均を 0 に。mm)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指
-    if (dtext) numbers.depthMm = dtext;
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;

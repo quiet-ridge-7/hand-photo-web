@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, handStrokes, maskStats, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -203,51 +203,6 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
   assert.equal(framePose(null), null);
 });
 
-// ---- 奥行き(平均を 0 に)と、色 ----
-test("奥行き: 8点の、平均を引くので、8点の合計が 0。ほかの13点は null。向きを変えても、平均が 0。点が足りなければ null", () => {
-  for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
-    const d = depthRelative(makeWorld(o));
-    assert.equal(d.length, 21);
-    assert.ok([3, 4, 7, 8, 11, 12, 14, 15, 16, 17, 18, 19, 20].every((i) => d[i] === null), "8点以外は、null");
-    assert.equal(d.filter((v) => v !== null).length, 8);
-    assert.ok(Math.abs(d.filter((v) => v !== null).reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
-  }
-  const biased = makeWorld({}).map((q, i) => ([3, 4, 7, 8, 11, 12, 14, 15, 16, 17, 18, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
-  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "8点以外が、どんなに、ずれても、8点の平均や、色は、変わらない");
-  assert.equal(depthRelative(null), null);
-  assert.equal(depthRelative([]), null);
-  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 2 ? { x: 0, y: 0, z: NaN } : q))), null);   // 8点の中の点(2番)が、壊れていれば、null
-  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 || i === 7 || i === 17 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)・第1関節(7番)・小指の付け根(17番)が、壊れていても、8点には、関係ない");
-});
-test("奥行き: 平らな手を、まっすぐ向けると、全部 0。pan で、ひねると、片側が近く、反対側が遠い", () => {
-  assert.ok(depthRelative(makeWorld({})).every((v) => Math.abs(v) < 1e-12));
-  const w = makeWorld({ pan: 30 }), d = depthRelative(w);
-  const xs = POINTS8.map((i) => w[i].x);   // 色を付ける 8点の中で、いちばん左と、いちばん右の点
-  const left = POINTS8[xs.indexOf(Math.min(...xs))], right = POINTS8[xs.indexOf(Math.max(...xs))];
-  assert.ok(d[left] * d[right] < 0 && Math.abs(d[left]) > 0.01 && Math.abs(d[right]) > 0.01, JSON.stringify({ l: d[left], r: d[right] }));
-});
-test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤。遠い(+3cm)は、青。±3cm を超えても、それ以上は、濃くならない。真ん中は、中間", () => {
-  assert.deepEqual(depthColor(0), [235, 235, 235]);
-  assert.deepEqual(depthColor(-0.03), [255, 50, 50]);
-  assert.deepEqual(depthColor(0.03), [50, 110, 255]);
-  assert.deepEqual(depthColor(-0.2), depthColor(-0.03));
-  assert.deepEqual(depthColor(0.2), depthColor(0.03));
-  const half = depthColor(-0.015);
-  assert.ok(half[0] > 235 - 1 && half[1] > 50 && half[1] < 235 && half[2] > 50 && half[2] < 235, JSON.stringify(half));
-});
-test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順に、mm で出す。確認用の数字に、depthMm として、出る", () => {
-  const txt = depthText(makeWorld({ pan: 30 }));
-  assert.equal(txt.split("|").length, 6);
-  const tokens = txt.replace(/\|/g, " ").trim().split(/\s+/);
-  assert.equal(tokens.length, 21);
-  assert.equal(tokens.filter((v) => v === "x").length, 13, "色を付けない13点は、x");
-  assert.equal(depthText(null), null);
-  const hand = makeHand({ facing: "palm" });
-  const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
-  assert.equal(r.numbers.depthMm, txt);
-  assert.equal(evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good }).numbers.depthMm, undefined);
-});
-
 // ---- 指先の奥行きの偏りに強い(手のひらの点だけで、面を出す) ----
 test("指先の5点が、いつも手前(-3cm)に推定されても、指先を除いた 16点の面は、ずれない。21点すべての面は、前に倒れて見える", () => {
   const w = makeWorld({});
@@ -408,51 +363,6 @@ test("指先(1本ずつ): 中央に近い指先が、撮る相手。その指が
 test("指先モードの、チェック項目は、手のひら / 甲と、違う(爪の側、指先の大きさ)", () => {
   const ids = checkList("tip5").map((c) => c.id);
   assert.ok(ids.includes("tipsize") && ids.includes("facing") && !ids.includes("open"));
-});
-
-// ---- 輪郭 ----
-// 3次元の手を、真正面から見た、2次元の点にする(わかりやすく、x, y だけ。単位は 画面の短い辺 = 0.35m)
-const flat2d = (w) => w.map((q) => ({ x: 0.5 + q.x / 0.35 * (FRAME.h / FRAME.w), y: 0.5 + q.y / 0.35, z: 0 }));
-test("輪郭: 凸包は、四角の点だけ残し、中の点は、捨てる", () => {
-  const h = convexHull([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 5, y: 5 }, { x: 5, y: 0 }]);
-  assert.equal(h.length, 4);
-});
-test("輪郭: 手を、画面の中で回しても(roll)、幅/長さ と 面積 は、変わらない", () => {
-  const a = outlineShape(flat2d(makeWorld({ roll: 0 })), FRAME), b = outlineShape(flat2d(makeWorld({ roll: 40 })), FRAME);
-  assert.ok(near(a.ratio, b.ratio, 0.02) && near(a.areaNorm, b.areaNorm, 0.02) && near(a.palmRatio, b.palmRatio, 0.02), JSON.stringify([a.ratio, b.ratio]));
-});
-test("輪郭: 左右にひねる(pan)と、幅/長さ が、縮む。大きく、ひねるほど、縮む。符号が、逆でも、同じ", () => {
-  const r = (p) => outlineShape(flat2d(makeWorld({ pan: p })), FRAME);
-  assert.ok(r(0).ratio > r(30).ratio && r(30).ratio > r(55).ratio);
-  assert.ok(near(r(30).ratio, r(-30).ratio, 0.01));
-  assert.ok(r(0).palmRatio > r(30).palmRatio);
-});
-test("輪郭: 前後に倒す(tilt)と、長さ が、縮む(幅/長さ は、増える)。 点が足りない時は null", () => {
-  const r = (t) => outlineShape(flat2d(makeWorld({ tilt: t })), FRAME);
-  assert.ok(r(0).ratio < r(30).ratio);
-  assert.equal(outlineShape(null, FRAME), null);
-});
-
-test("分割: 手の点から、正の筆跡が6本(手のひら、親指、4本の指)。点は 0〜1 の中。点が足りない時は空", () => {
-  const h = makeHand({});
-  const s = handStrokes(h.lm);
-  assert.equal(s.length, 6);
-  assert.ok(s.every((k) => k.brushMode === 1 && k.isCompleted === true && k.point.length >= 2 && k.point.every((q) => q.x > 0 && q.x < 1 && q.y > 0 && q.y < 1)));
-  assert.deepEqual(handStrokes(null), []);
-  const edge = h.lm.map((q) => ({ ...q, x: 1.2, y: -0.1 }));
-  assert.ok(handStrokes(edge).every((k) => k.point.every((q) => q.x <= 0.999 && q.y >= 0.001)), "画面の外の点は、中に、おさめる");
-});
-test("分割: 地図の、面積・長さ・幅。四角い地図で、数字が合う。空の地図は null", () => {
-  const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
-  lm[0] = { x: 0.5, y: 0.8, z: 0 };   // 手首。 中指の付け根(9)は、真上
-  const h = { lm };
-  const mw = 160, mh = 90, mask = new Float32Array(mw * mh);
-  for (let j = 20; j < 60; j++) for (let i = 50; i < 80; i++) mask[j * mw + i] = 1;   // 30 × 40 マス(画面では 240 × 320 画素)
-  const s = maskStats(mask, mw, mh, h.lm, FRAME);
-  assert.ok(near(s.area, 30 * 40 * 64, 1) && near(s.width, 240, 1) && near(s.length, 320, 1), JSON.stringify(s));
-  assert.ok(near(s.ratio, 0.75, 0.01) && s.areaNorm > 0);
-  assert.equal(maskStats(new Float32Array(mw * mh), mw, mh, h.lm, FRAME), null);
-  assert.equal(maskStats(mask, mw, mh, null, FRAME), null);
 });
 
 // ---- 手の形のガイドと、一致した面積 ----

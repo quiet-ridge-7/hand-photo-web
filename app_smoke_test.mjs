@@ -139,45 +139,7 @@ try {
   check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
 
   await waitFor(`/pan\\s+[+-]\\s*\\d/.test(document.getElementById("pose-line").textContent)`, "向きの1行", 10000);
-  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*比較\(pan,tilt\): 11点.*16点.*21点/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
-
-  // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
-  const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
-  const idx8 = [0, 1, 2, 5, 6, 9, 10, 13];   // 色を付ける 8点
-  const zs = idx8.map((i) => wd[i].z), iNear = idx8[zs.indexOf(Math.min(...zs))], iFar = idx8[zs.indexOf(Math.max(...zs))];
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
-  await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
-  const lmNow = await ev(`window.__handNow.landmarks`);
-  const rgbAt = (i) => ev(`(() => { const c = document.getElementById("overlay"); const p = ${JSON.stringify(lmNow[i])}; const d = c.getContext("2d").getImageData(Math.round(p.x * c.width) - 1, Math.round(p.y * c.height) - 1, 3, 3).data; let r = 0, g = 0, b = 0, n = 0; for (let k = 0; k < d.length; k += 4) { r += d[k]; g += d[k + 1]; b += d[k + 2]; n++; } return [r / n, g / n, b / n]; })()`);
-  let cNear = await rgbAt(iNear), cFar = await rgbAt(iFar);
-  for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
-  check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
-  const grays = {};
-  for (const i of [8, 7, 14, 17, 18]) grays[i] = await rgbAt(i);
-  check("B3f2 8点以外(指先 8、第1関節 7、薬指の第2関節 14、小指 17・18)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Object.values(grays).every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify(Object.fromEntries(Object.entries(grays).map(([k, c]) => [k, c.map(Math.round)]))));
-  check("B3g 確認用の数字に、奥行き(depthMm。色を付けない13点は x)が出る。チェックは、はじめから、オン。凡例がある", (((await text("#numbers-text")).match(/"depthMm": "([^"]*)"/) || [])[1] || "").split(/[\s|]+/).filter((v) => v === "x").length === 13 && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
-  await ev(`document.getElementById("depth-color").click(); true`);
-  let cOff = await rgbAt(iNear);
-  for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }
-  check("B3h チェックを外すと、点は、ふつうの色(黄色: R と G が高く、B が低い)に、戻る", cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100, JSON.stringify(cOff.map(Math.round)));
-  await ev(`document.getElementById("depth-color").click(); true`);
-
-  // 実際の輪郭(分割モデル): ボタンを押した時だけ、1回、取る(偽の映像なので、形は問わない。動くことだけを見る。1回に、数秒〜十数秒、画面が止まる)
-  check("B3s 実際の輪郭のボタンが2つある(取る / 消す)。押すまで、モデルは、読み込まない(通信していない)", (await ev(`!!document.getElementById("seg-once") && !!document.getElementById("seg-clear")`)) && !(await ev(`performance.getEntriesByType("resource").some((e) => e.name.includes("interactive_segmentation"))`)));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
-  await ev(`document.getElementById("seg-once").click(); true`);
-  let segOk = true;
-  try {
-    await waitFor(`/輪郭を取りました/.test(document.getElementById("seg-note").textContent)`, "輪郭を取る", 150000);
-    await waitFor(`/実際の輪郭: 幅\\/長さ [0-9.]+\\s+面積 [0-9.]+\\s+\\([0-9]+ms\\)/.test(document.getElementById("pose-line").textContent)`, "輪郭の数字", 30000);
-  } catch (e) {
-    segOk = false;
-    console.log("   " + e.message + " / note=" + (await text("#seg-note")) + " / line=" + (await text("#pose-line")).split("\n").join(" | "));
-  }
-  check("B3t 実際の輪郭: ボタンを押すと、モデルを読み込み、1回取って、3行目に、『実際の輪郭: 幅/長さ … 面積 … (○ms)』が出る。エラーは出ない", segOk && !/エラー|できませんでした/.test(await text("#seg-note")), await text("#seg-note"));
-  await ev(`document.getElementById("seg-clear").click(); true`);
-  await waitFor(`!/実際の輪郭/.test(document.getElementById("pose-line").textContent)`, "消した後の、輪郭の数字の消去", 5000).catch(() => {});
-  check("B3u 「輪郭を消す」を押すと、実際の輪郭の数字は、消える", !/実際の輪郭/.test(await text("#pose-line")));
+  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列で、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*比較\(pan,tilt\): 11点.*16点.*21点/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("numbers").getBoundingClientRect().top`)), await text("#pose-line"));
 
   // 手の形のガイド: 手のひらモードで、ガイド(うすい形)を出し、いまの手との、一致した面積(%)を出す
   const pcts = async () => { const m = (await text("#pose-line")).match(/そのまま\s*(\d+)%\s+形だけ[^0-9]*(\d+)%/); return m ? [Number(m[1]), Number(m[2])] : null; };
