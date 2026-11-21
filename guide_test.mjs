@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -170,11 +170,11 @@ test("向き: 3つを、同時に、回しても、それぞれの角度が、�
 test("向き: roll(画面の中で回す)は、angle(カメラからの、ずれ)を、変えない", () => {
   assert.ok(near(poseOf(makeWorld({ pan: 20, roll: 0 })).angle, poseOf(makeWorld({ pan: 20, roll: 50 })).angle, 0.3));
 });
-test("向き: 1点の偏りに強い。小指の付け根だけ、奥に 2cm ずれていても、3点の面より、点すべての向きの方が、ずれが小さい", () => {
+test("向き: 1点の偏りに強い。小指の付け根だけ、奥に 2cm ずれていても、3点の面より、手のひらの6点の向きの方が、ずれが小さい", () => {
   const w = makeWorld({});
   w[17] = { ...w[17], z: w[17].z + 0.02 };
   const three = palmAngles(w), all = poseOf(w);
-  assert.ok(Math.abs(three.pan) > Math.abs(all.pan) * 1.5, JSON.stringify({ three, all }));
+  assert.ok(Math.abs(three.pan) > Math.abs(all.pan) * 1.2, JSON.stringify({ three, all }));   // 手のひらの6点は、3点より、ずれが小さい
 });
 test("ゆれをならす: ノイズのある向きを、5コマ平均すると、平均の誤差が、小さくなる。軸は、直交で、長さ 1", () => {
   let seed = 12345;
@@ -238,6 +238,24 @@ test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | �
   const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
   assert.equal(r.numbers.depthMm, txt);
   assert.equal(evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good }).numbers.depthMm, undefined);
+});
+
+// ---- 指先の奥行きの偏りに強い(手のひらの点だけで、面を出す) ----
+test("指先の5点が、いつも手前(-3cm)に推定されても、手のひらの点だけの面は、ずれない。21点すべての面は、前に倒れて見える", () => {
+  const w = makeWorld({});
+  const biased = w.map((q, i) => ([4, 8, 12, 16, 20].includes(i) ? { ...q, z: q.z - 0.03 } : q));   // 指先だけ、手前に、3cm
+  const palm = framePose(handFrame(biased)), all = framePose(handFrame(biased, ALL_POINTS));
+  assert.ok(Math.abs(palm.tilt) < 0.5 && Math.abs(palm.pan) < 0.5, JSON.stringify(palm));
+  assert.ok(Math.abs(all.tilt) > 5, "21点の面は、偏りに、引きずられる: " + JSON.stringify(all));
+  assert.deepEqual(PALM_POINTS, [0, 1, 5, 9, 13, 17]);
+  assert.equal(ALL_POINTS.length, 21);
+});
+test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの点の面は、そのまま。roll は、変わらない", () => {
+  const w = makeWorld({ pan: 20, tilt: -10, roll: 15 });
+  const fingers = [3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20];
+  const biased = w.map((q, i) => (fingers.includes(i) ? { ...q, z: q.z - 0.02 } : q));
+  const a = framePose(handFrame(w)), b = framePose(handFrame(biased));
+  assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));
 });
 
 // ---- 法線の矢印 ----
