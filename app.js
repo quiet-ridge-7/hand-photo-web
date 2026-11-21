@@ -147,7 +147,7 @@ function drawHand(lm, ok, arrow = null, depth = null) {
     octx.strokeStyle = "rgba(0,0,0,0.6)";
     octx.lineWidth = Math.max(1, w / 500);
     lm.forEach((p, i) => {
-      if (depth[i] == null) {   // 指先と、指先に近い関節の10点: 色を付けない(奥行きの平均にも、面の計算にも、使わない)。小さな、灰色の点
+      if (depth[i] == null) {   // 8点以外の13点: 色を付けない(奥行きの平均にも、面の計算にも、使わない)。小さな、灰色の点
         octx.fillStyle = "rgba(170,170,170,0.85)";
         octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill();
         return;
@@ -250,11 +250,12 @@ function loop() {
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
 
-// 向きの数字(pan / tilt / roll)を、1行の文字にする。(11点の面) 16点・21点の面も、比べるために、並べる
+// 向きの数字(pan / tilt / roll)を、文字にする。(8点の面) 11点・16点・21点の面も、比べるために、並べる
 const sgn = (v) => (v == null ? "  -  " : (v >= 0 ? "+" : "-") + Math.abs(v).toFixed(1).padStart(4, " "));
 function poseLine(n) {
   if (n.pan === undefined) return "向き: (手が映ると、数字が出ます)";
-  return "pan " + sgn(n.pan) + "°  tilt " + sgn(n.tilt) + "°  roll " + sgn(n.roll) + "°\n[16点: pan " + sgn(n.pan16) + "° tilt " + sgn(n.tilt16) + "°]  [21点: pan " + sgn(n.panAll) + "° tilt " + sgn(n.tiltAll) + "°]";
+  const pair = (p, t) => "(" + sgn(p).trim() + "," + sgn(t).trim() + ")";
+  return "pan " + sgn(n.pan) + "°  tilt " + sgn(n.tilt) + "°  roll " + sgn(n.roll) + "°\n比較(pan,tilt): 11点 " + pair(n.pan11, n.tilt11) + " 16点 " + pair(n.pan16, n.tilt16) + " 21点 " + pair(n.panAll, n.tiltAll);
 }
 
 // ---- 撮影と保存 ----

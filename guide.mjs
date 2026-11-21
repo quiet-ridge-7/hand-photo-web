@@ -135,8 +135,8 @@ const vNorm = (a) => { const l = Math.hypot(a.x, a.y, a.z); return l < 1e-12 ? n
 
 // 手の、座標軸(3方向)を、手の点21個(worldLandmarks。メートル)すべてから、作る。
 //   座標は、カメラ基準に、直す: X = 右、Y = 上、Z = 手前(見ている人の側)。 (MediaPipe は、x = 右、y = 下、z = 奥)
-//   ez(手のひら / 甲の、向き)= points(既定は、指先と、指先に近い関節を除いた 11点)に、いちばんよく合う面の、法線。 手前向き(+Z)に、そろえる。
-//   ey(指の、向き)= 手首から、4本の指の付け根の、平均への向き(手のひらの、中で、かたい部分)。 面の中に、直す。
+//   ez(手のひら / 甲の、向き)= points(既定は、8点)に、いちばんよく合う面の、法線。 手前向き(+Z)に、そろえる。
+//   ey(指の、向き)= 手首から、中指の付け根(9。points に無ければ、points の中の、ほかの指の付け根の平均、それも無ければ 4本の平均)への向き。 面の中に、直す。
 //   ex(手の、幅の向き)= ey × ez(右手系)。
 //   戻り値: { ex, ey, ez, rms(あてはまりの悪さ。ミリメートル) } | null
 //   手が、カメラに、まっすぐ向いていて、指が、上向きなら、ex = X、ey = Y、ez = Z(= 0度)になる。左右・手のひら / 甲に、よらない。
@@ -150,8 +150,11 @@ export const POINTS16 = ALL_POINTS.filter((i) => !TIPS.includes(i));
 //   11点 = 手首、親指の付け根(CMC、MCP)、4本の指の付け根(MCP)と、第2関節(PIP)。
 export const DIP_POINTS = [3, 7, 11, 15, 19];
 export const POINTS11 = POINTS16.filter((i) => !DIP_POINTS.includes(i));
+// さらに、小指の2点(付け根 17、第2関節 18)と、人差し指の第2関節(6)を除いた、8点。 基本の点(面のあてはめ・奥行きの色・指の向き・矢印の始点)。
+//   8点 = 手首(0)、親指の付け根(1、2)、人差し指の付け根(5)、中指の付け根と第2関節(9、10)、薬指の付け根と第2関節(13、14)。
+export const POINTS8 = [0, 1, 2, 5, 9, 10, 13, 14];
 
-export function handFrame(world, points = POINTS11) {
+export function handFrame(world, points = POINTS8) {
   if (!world || world.length < 21) return null;
   if (!world.every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
   const Pall = world.map((q) => ({ x: q.x, y: -q.y, z: -q.z }));
@@ -170,7 +173,10 @@ export function handFrame(world, points = POINTS11) {
   let ez = vNorm(vectors[k]);
   if (!ez) return null;
   if (ez.z < 0) ez = vScale(ez, -1);
-  const mcp = vScale([5, 9, 13, 17].map((i) => Pall[i]).reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / 4);
+  // 指の向き: 手首から、中指の付け根(9)への向き(手の軸として、標準的)。 使う点に、9が無ければ、使う点の中の指の付け根の平均。それも無ければ、4本の平均
+  const mcpIdx = points.includes(9) ? [9] : [5, 13, 17].filter((i) => points.includes(i));
+  const useMcp = mcpIdx.length > 0 ? mcpIdx : [5, 9, 13, 17];
+  const mcp = vScale(useMcp.map((i) => Pall[i]).reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / useMcp.length);
   let d = vSub(mcp, Pall[0]);
   d = vSub(d, vScale(ez, vDot(d, ez)));
   const ey = vNorm(d);
@@ -192,10 +198,10 @@ export function framePose(f) {
 }
 
 // ---- 奥行き(平均を 0 にして、点ごとに、色で表す)----
-// 手の点の、奥行き(worldLandmarks の z。メートル)から、平均を引く(平均が、0 になる)。 平均は、points(既定は、11点)だけで、取る。
-//   戻り値: 21個の配列(メートル。points に無い点(指先と、指先に近い関節)は、null) | null
+// 手の点の、奥行き(worldLandmarks の z。メートル)から、平均を引く(平均が、0 になる)。 平均は、points(既定は、8点)だけで、取る。
+//   戻り値: 21個の配列(メートル。points に無い点(13点)は、null) | null
 //   z は、小さいほど、カメラに近い(MediaPipe の決まり)。 つまり、負 = 平均より、近い。 正 = 平均より、遠い。
-export function depthRelative(world, points = POINTS11) {
+export function depthRelative(world, points = POINTS8) {
   if (!world || world.length < 21) return null;
   const zs = points.map((i) => (world[i] ? world[i].z : NaN));
   if (!zs.every(Number.isFinite)) return null;
@@ -214,7 +220,7 @@ export function depthColor(d, range = DEPTH_RANGE) {
   return mid.map((m, i) => Math.round(m + (to[i] - m) * k));
 }
 
-// 確認用の数字に出す、文字: 21点の、奥行き(平均からの差。ミリメートル)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順。 色を付けない点(10点)は、x。
+// 確認用の数字に出す、文字: 21点の、奥行き(平均からの差。ミリメートル)。 手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順。 色を付けない点(13点)は、x。
 export function depthText(world) {
   const d = depthRelative(world);
   if (!d) return null;
@@ -223,12 +229,11 @@ export function depthText(world) {
   return mm[0] + " | " + grp(1, 5) + " | " + grp(5, 9) + " | " + grp(9, 13) + " | " + grp(13, 17) + " | " + grp(17, 21);
 }
 
-// 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 手のひらの中心(手首と、4本の指の付け根の、平均)から、法線の、画面の向きへ。
+// 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 面の計算に使う点(既定は、8点)の中心から、法線の、画面の向きへ。
 //   手前(カメラ側)を、向いているほど、短い(点に近い)。 30度で、画面の短い辺 × k × 0.5 の長さ。
 //   lm: 画面の中の位置(0〜1)。 f: handFrame / smoothFrame の戻り値。 frame: { w, h }(画素)。 戻り値(画素): { from, to, length } | null
-export function normalArrow(lm, f, frame, k = 0.5) {
+export function normalArrow(lm, f, frame, k = 0.5, idx = POINTS8) {
   if (!lm || !f) return null;
-  const idx = [0, 5, 9, 13, 17];
   const cx = (idx.reduce((s, i) => s + lm[i].x, 0) / idx.length) * frame.w, cy = (idx.reduce((s, i) => s + lm[i].y, 0) / idx.length) * frame.h;
   const L = Math.min(frame.w, frame.h) * k;
   return { from: { x: cx, y: cy }, to: { x: cx + f.ez.x * L, y: cy - f.ez.y * L }, length: Math.hypot(f.ez.x, f.ez.y) * L };   // 画面は、下向きが +y。 ez は Y が上向き
@@ -380,13 +385,15 @@ export function evaluate(input) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
     // 手の向き(確認用の数字だけ。まだ、判定には、使わない)
-    //   pan / tilt / roll / angle / rms: 11点(指先と、指先に近い関節を除く)から、作った、手の軸(直近の数コマを、ならした物)。 pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
+    //   pan / tilt / roll / angle / rms: 8点から、作った、手の軸(直近の数コマを、ならした物)。 pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
     const three = palmAngles(world);
     const r1 = (v) => Math.round(v * 10) / 10;
     if (pose) { numbers.pan = r1(pose.pan); numbers.tilt = r1(pose.tilt); numbers.roll = r1(pose.roll); numbers.angle = r1(pose.angle); numbers.rms = r1(pose.rms); }
     if (three) { numbers.pan3 = r1(three.pan); numbers.tilt3 = r1(three.tilt); numbers.angle3 = r1(three.angle); }
     const allFrame = world ? handFrame(world, ALL_POINTS) : null;   // 21点すべてで、あてはめた面(比べるため。指先が、手前に偏るので、前に倒れて見える)
     if (allFrame) { const pa = framePose(allFrame); numbers.panAll = r1(pa.pan); numbers.tiltAll = r1(pa.tilt); }
+    const f11 = world ? handFrame(world, POINTS11) : null;   // 11点(指先と第1関節を除いた面。比べるため)
+    if (f11) { const p11 = framePose(f11); numbers.pan11 = r1(p11.pan); numbers.tilt11 = r1(p11.tilt); }
     const f16 = world ? handFrame(world, POINTS16) : null;   // 16点(指先だけを除いた面。比べるため)
     if (f16) { const p16 = framePose(f16); numbers.pan16 = r1(p16.pan); numbers.tilt16 = r1(p16.tilt); }
     const palmFrame = world ? handFrame(world, PALM_POINTS) : null;   // 手のひらの6点の面(比べるため)

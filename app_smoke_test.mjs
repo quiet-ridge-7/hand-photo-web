@@ -9,6 +9,9 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeHand, makeWorld } from "./test_hands.mjs";
+import { handFrame, framePose } from "./guide.mjs";
+
+const ROLL0 = framePose(handFrame(makeWorld({ hand: "right", facing: "palm" }))).roll;   // 人工の手の形の、元の roll(中指の付け根が、手首の真上から、少し、ずれている)
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HTTP_PORT = 8786, CDP_PORT = 9345;
@@ -119,11 +122,11 @@ try {
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 20, tilt: -10 } });
   await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
   const nums = JSON.parse(await text("#numbers-text"));
-  check("B3b 3次元の点を渡すと、「確認用の数字」に、手の点すべてからの pan・tilt・roll・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt -10、roll 0)", Math.abs(nums.pan - 20) < 1.5 && Math.abs(nums.tilt + 10) < 1.5 && Math.abs(nums.roll) < 1.5 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1.5 && nums.rms !== undefined, JSON.stringify(nums));
+  check("B3b 3次元の点を渡すと、「確認用の数字」に、手の点すべてからの pan・tilt・roll・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt -10、roll 0)", Math.abs(nums.pan - 20) < 1.5 && Math.abs(nums.tilt + 10) < 1.5 && Math.abs(nums.roll - ROLL0) < 1.5 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1.5 && nums.rms !== undefined, JSON.stringify(nums));
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 0, tilt: 0, roll: 35 } });
-  await waitFor(`Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).roll - 35) < 2`, "roll の数字", 8000);
+  await waitFor(`Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).roll - ${35 + ROLL0}) < 2`, "roll の数字", 8000);
   const nums2 = JSON.parse(await text("#numbers-text"));
-  check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - 35) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
+  check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - (35 + ROLL0)) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
 
   // 法線の矢印(緑): pan 30度で、手のひらの中心から、右へ伸びる。まっすぐなら、中心の丸だけ
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
@@ -136,12 +139,12 @@ try {
   check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
 
   await waitFor(`/pan\\s+[+-]\\s*\\d/.test(document.getElementById("pose-line").textContent)`, "向きの1行", 10000);
-  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*\[16点: pan.*\[21点: pan/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
+  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*比較\(pan,tilt\): 11点.*16点.*21点/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
 
   // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
   const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
-  const idx11 = [0, 1, 2, 5, 6, 9, 10, 13, 14, 17, 18];   // 指先と、第1関節(3、4、7、8、11、12、15、16、19、20)を除いた 11点
-  const zs = idx11.map((i) => wd[i].z), iNear = idx11[zs.indexOf(Math.min(...zs))], iFar = idx11[zs.indexOf(Math.max(...zs))];
+  const idx8 = [0, 1, 2, 5, 9, 10, 13, 14];   // 色を付ける 8点
+  const zs = idx8.map((i) => wd[i].z), iNear = idx8[zs.indexOf(Math.min(...zs))], iFar = idx8[zs.indexOf(Math.max(...zs))];
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
   await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
   const lmNow = await ev(`window.__handNow.landmarks`);
@@ -149,9 +152,10 @@ try {
   let cNear = await rgbAt(iNear), cFar = await rgbAt(iFar);
   for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
   check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
-  const cTip = await rgbAt(8), cDip = await rgbAt(7);
-  check("B3f2 指先(8番)と、第1関節(7番)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", [cTip, cDip].every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify({ tip: cTip.map(Math.round), dip: cDip.map(Math.round) }));
-  check("B3g 確認用の数字に、奥行き(depthMm。色を付けない10点は x)が出る。チェックは、はじめから、オン。凡例がある", (((await text("#numbers-text")).match(/"depthMm": "([^"]*)"/) || [])[1] || "").split(/[\s|]+/).filter((v) => v === "x").length === 10 && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
+  const grays = {};
+  for (const i of [8, 7, 6, 17, 18]) grays[i] = await rgbAt(i);
+  check("B3f2 8点以外(指先 8、第1関節 7、人差し指の第2関節 6、小指 17・18)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Object.values(grays).every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify(Object.fromEntries(Object.entries(grays).map(([k, c]) => [k, c.map(Math.round)]))));
+  check("B3g 確認用の数字に、奥行き(depthMm。色を付けない13点は x)が出る。チェックは、はじめから、オン。凡例がある", (((await text("#numbers-text")).match(/"depthMm": "([^"]*)"/) || [])[1] || "").split(/[\s|]+/).filter((v) => v === "x").length === 13 && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
   await ev(`document.getElementById("depth-color").click(); true`);
   let cOff = await rgbAt(iNear);
   for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }

@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, DIP_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -149,7 +149,7 @@ const poseOf = (w) => framePose(handFrame(w));
 test("向き: まっすぐ(0, 0, 0)は、全部 0度。右手・左手、手のひら・甲、どれでも", () => {
   for (const hand of ["right", "left"]) for (const facing of ["palm", "back"]) {
     const p = poseOf(makeWorld({ hand, facing }));
-    assert.ok(near(p.pan, 0) && near(p.tilt, 0) && near(p.roll, 0, 1) && near(p.angle, 0) && p.rms < 0.5, hand + facing + JSON.stringify(p));   // roll は、人工の手の形の、わずかな、ずれ(1度未満)を、含む
+    assert.ok(near(p.pan, 0) && near(p.tilt, 0) && Math.abs(p.roll) < 10 && near(p.angle, 0) && p.rms < 0.5, hand + facing + JSON.stringify(p));   // roll は、人工の手の形(中指の付け根が、手首の真上から、少し、ずれている)の、元のずれを、含む
   }
 });
 test("向き: pan・tilt・roll を、1つずつ、回すと、その角度だけが、出る(符号つき)", () => {
@@ -204,26 +204,26 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
 });
 
 // ---- 奥行き(平均を 0 に)と、色 ----
-test("奥行き: 11点(指先と、第1関節を除く)の、平均を引くので、11点の合計が 0。ほかの10点は null。向きを変えても、平均が 0。点が足りなければ null", () => {
+test("奥行き: 8点の、平均を引くので、8点の合計が 0。ほかの13点は null。向きを変えても、平均が 0。点が足りなければ null", () => {
   for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
     const d = depthRelative(makeWorld(o));
     assert.equal(d.length, 21);
-    assert.ok([3, 4, 7, 8, 11, 12, 15, 16, 19, 20].every((i) => d[i] === null), "指先と第1関節は、null");
-    assert.equal(d.filter((v) => v !== null).length, 11);
+    assert.ok([3, 4, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 20].every((i) => d[i] === null), "8点以外は、null");
+    assert.equal(d.filter((v) => v !== null).length, 8);
     assert.ok(Math.abs(d.filter((v) => v !== null).reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
   }
-  const biased = makeWorld({}).map((q, i) => ([3, 4, 7, 8, 11, 12, 15, 16, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
-  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "指先や第1関節が、どんなに、ずれても、11点の平均や、色は、変わらない");
+  const biased = makeWorld({}).map((q, i) => ([3, 4, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
+  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "8点以外が、どんなに、ずれても、8点の平均や、色は、変わらない");
   assert.equal(depthRelative(null), null);
   assert.equal(depthRelative([]), null);
-  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 2 ? { x: 0, y: 0, z: NaN } : q))), null);   // 11点の中の点(2番)が、壊れていれば、null
-  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 || i === 7 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)や第1関節(7番)が、壊れていても、11点には、関係ない");
+  assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 2 ? { x: 0, y: 0, z: NaN } : q))), null);   // 8点の中の点(2番)が、壊れていれば、null
+  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 || i === 7 || i === 17 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)・第1関節(7番)・小指の付け根(17番)が、壊れていても、8点には、関係ない");
 });
 test("奥行き: 平らな手を、まっすぐ向けると、全部 0。pan で、ひねると、片側が近く、反対側が遠い", () => {
   assert.ok(depthRelative(makeWorld({})).every((v) => Math.abs(v) < 1e-12));
   const w = makeWorld({ pan: 30 }), d = depthRelative(w);
-  const xs = POINTS11.map((i) => w[i].x);   // 色を付ける 11点の中で、いちばん左と、いちばん右の点
-  const left = POINTS11[xs.indexOf(Math.min(...xs))], right = POINTS11[xs.indexOf(Math.max(...xs))];
+  const xs = POINTS8.map((i) => w[i].x);   // 色を付ける 8点の中で、いちばん左と、いちばん右の点
+  const left = POINTS8[xs.indexOf(Math.min(...xs))], right = POINTS8[xs.indexOf(Math.max(...xs))];
   assert.ok(d[left] * d[right] < 0 && Math.abs(d[left]) > 0.01 && Math.abs(d[right]) > 0.01, JSON.stringify({ l: d[left], r: d[right] }));
 });
 test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤。遠い(+3cm)は、青。±3cm を超えても、それ以上は、濃くならない。真ん中は、中間", () => {
@@ -240,7 +240,7 @@ test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | �
   assert.equal(txt.split("|").length, 6);
   const tokens = txt.replace(/\|/g, " ").trim().split(/\s+/);
   assert.equal(tokens.length, 21);
-  assert.equal(tokens.filter((v) => v === "x").length, 10, "色を付けない10点は、x");
+  assert.equal(tokens.filter((v) => v === "x").length, 13, "色を付けない13点は、x");
   assert.equal(depthText(null), null);
   const hand = makeHand({ facing: "palm" });
   const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
@@ -264,6 +264,8 @@ test("指先の5点が、いつも手前(-3cm)に推定されても、指先を�
   assert.deepEqual(POINTS11, [0, 1, 2, 5, 6, 9, 10, 13, 14, 17, 18]);
   assert.deepEqual(DIP_POINTS, [3, 7, 11, 15, 19]);
   assert.ok(POINTS11.every((i) => POINTS16.includes(i)) && DIP_POINTS.every((i) => !POINTS11.includes(i)));
+  assert.deepEqual(POINTS8, [0, 1, 2, 5, 9, 10, 13, 14]);
+  assert.ok(POINTS8.every((i) => POINTS11.includes(i)) && ![6, 17, 18].some((i) => POINTS8.includes(i)));
   assert.ok([4, 8, 12, 16, 20].every((i) => !POINTS16.includes(i)) && POINTS16.includes(0) && POINTS16.includes(19));
 });
 test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの6点の面は、そのまま。roll は、変わらない", () => {
@@ -274,13 +276,24 @@ test("指の関節・指先も、全部、手前に偏っていても(指を、�
   assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));
 });
 
-test("指先と、指先に近い関節(第1関節)の10点が、手前に偏っていても、11点の面は、ずれない。16点の面は、少し、ずれる", () => {
+test("指先と、指先に近い関節(第1関節)の10点が、手前に偏っていても、11点・8点の面は、ずれない。16点の面は、少し、ずれる", () => {
   const w = makeWorld({});
   const bad = [3, 4, 7, 8, 11, 12, 15, 16, 19, 20];
   const biased = w.map((q, i) => (bad.includes(i) ? { ...q, z: q.z - 0.03 } : q));
-  const p11 = framePose(handFrame(biased)), p16 = framePose(handFrame(biased, POINTS16));
+  const p11 = framePose(handFrame(biased, POINTS11)), p8 = framePose(handFrame(biased)), p16 = framePose(handFrame(biased, POINTS16));
   assert.ok(Math.abs(p11.tilt) < 0.5 && Math.abs(p11.pan) < 0.5, JSON.stringify(p11));
+  assert.ok(Math.abs(p8.tilt) < 0.5 && Math.abs(p8.pan) < 0.5, JSON.stringify(p8));
   assert.ok(Math.abs(p16.tilt) > 2, "16点の面は、第1関節の偏りに、引きずられる: " + JSON.stringify(p16));
+});
+
+test("小指の2点(17、18)と、人差し指の第2関節(6)が、大きく、ずれていても、8点の面と、指の向き(roll)は、ずれない", () => {
+  const w = makeWorld({ pan: 10, tilt: 5, roll: 20 });
+  const bad = [6, 17, 18];
+  const biased = w.map((q, i) => (bad.includes(i) ? { x: q.x + 0.03, y: q.y - 0.02, z: q.z - 0.05 } : q));
+  const a = framePose(handFrame(w)), b = framePose(handFrame(biased));
+  assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));
+  const c = framePose(handFrame(biased, POINTS11));
+  assert.ok(Math.abs(a.tilt - c.tilt) > 1 || Math.abs(a.pan - c.pan) > 1 || Math.abs(a.roll - c.roll) > 1, "11点の面は、ずれた点に、引きずられる: " + JSON.stringify(c));
 });
 
 // ---- 法線の矢印 ----
@@ -297,11 +310,11 @@ test("法線の矢印: まっすぐは、ほぼ点(長さ 0)。pan +30度は、�
   assert.ok(down.to.y > down.from.y && near(down.to.x, down.from.x, 0.5) && up.to.y < up.from.y, JSON.stringify(down));
   assert.ok(near(arrowOf({ roll: 40 }).length, 0, 0.5), "roll(画面の中で回す)では、矢印は、伸びない");
 });
-test("法線の矢印: 始点は、手のひらの中心(手首と、4本の指の付け根の、平均)。手や軸が、無ければ null", () => {
+test("法線の矢印: 始点は、面の計算に使う 8点の中心。手や軸が、無ければ null", () => {
   const hand = makeHand({});
   const a = normalArrow(hand.lm, handFrame(makeWorld({})), FRAME);
-  const idx = [0, 5, 9, 13, 17];
-  assert.ok(near(a.from.x, (idx.reduce((s, i) => s + hand.lm[i].x, 0) / 5) * FRAME.w, 0.01) && near(a.from.y, (idx.reduce((s, i) => s + hand.lm[i].y, 0) / 5) * FRAME.h, 0.01));
+  const idx = POINTS8;
+  assert.ok(near(a.from.x, (idx.reduce((s, i) => s + hand.lm[i].x, 0) / idx.length) * FRAME.w, 0.01) && near(a.from.y, (idx.reduce((s, i) => s + hand.lm[i].y, 0) / idx.length) * FRAME.h, 0.01));
   assert.equal(normalArrow(null, handFrame(makeWorld({})), FRAME), null);
   assert.equal(normalArrow(hand.lm, null, FRAME), null);
 });
