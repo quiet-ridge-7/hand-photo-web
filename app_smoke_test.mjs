@@ -143,7 +143,7 @@ try {
 
   // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
   const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
-  const idx8 = [0, 1, 2, 5, 9, 10, 13, 14];   // 色を付ける 8点
+  const idx8 = [0, 1, 2, 5, 6, 9, 10, 13];   // 色を付ける 8点
   const zs = idx8.map((i) => wd[i].z), iNear = idx8[zs.indexOf(Math.min(...zs))], iFar = idx8[zs.indexOf(Math.max(...zs))];
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
   await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
@@ -153,8 +153,8 @@ try {
   for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
   check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
   const grays = {};
-  for (const i of [8, 7, 6, 17, 18]) grays[i] = await rgbAt(i);
-  check("B3f2 8点以外(指先 8、第1関節 7、人差し指の第2関節 6、小指 17・18)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Object.values(grays).every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify(Object.fromEntries(Object.entries(grays).map(([k, c]) => [k, c.map(Math.round)]))));
+  for (const i of [8, 7, 14, 17, 18]) grays[i] = await rgbAt(i);
+  check("B3f2 8点以外(指先 8、第1関節 7、薬指の第2関節 14、小指 17・18)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Object.values(grays).every((c) => Math.max(...c) - Math.min(...c) < 25 && c[0] > 120), JSON.stringify(Object.fromEntries(Object.entries(grays).map(([k, c]) => [k, c.map(Math.round)]))));
   check("B3g 確認用の数字に、奥行き(depthMm。色を付けない13点は x)が出る。チェックは、はじめから、オン。凡例がある", (((await text("#numbers-text")).match(/"depthMm": "([^"]*)"/) || [])[1] || "").split(/[\s|]+/).filter((v) => v === "x").length === 13 && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
   await ev(`document.getElementById("depth-color").click(); true`);
   let cOff = await rgbAt(iNear);

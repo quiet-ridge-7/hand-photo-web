@@ -208,11 +208,11 @@ test("奥行き: 8点の、平均を引くので、8点の合計が 0。ほか�
   for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
     const d = depthRelative(makeWorld(o));
     assert.equal(d.length, 21);
-    assert.ok([3, 4, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 20].every((i) => d[i] === null), "8点以外は、null");
+    assert.ok([3, 4, 7, 8, 11, 12, 14, 15, 16, 17, 18, 19, 20].every((i) => d[i] === null), "8点以外は、null");
     assert.equal(d.filter((v) => v !== null).length, 8);
     assert.ok(Math.abs(d.filter((v) => v !== null).reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
   }
-  const biased = makeWorld({}).map((q, i) => ([3, 4, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
+  const biased = makeWorld({}).map((q, i) => ([3, 4, 7, 8, 11, 12, 14, 15, 16, 17, 18, 19, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
   assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "8点以外が、どんなに、ずれても、8点の平均や、色は、変わらない");
   assert.equal(depthRelative(null), null);
   assert.equal(depthRelative([]), null);
@@ -264,8 +264,8 @@ test("指先の5点が、いつも手前(-3cm)に推定されても、指先を�
   assert.deepEqual(POINTS11, [0, 1, 2, 5, 6, 9, 10, 13, 14, 17, 18]);
   assert.deepEqual(DIP_POINTS, [3, 7, 11, 15, 19]);
   assert.ok(POINTS11.every((i) => POINTS16.includes(i)) && DIP_POINTS.every((i) => !POINTS11.includes(i)));
-  assert.deepEqual(POINTS8, [0, 1, 2, 5, 9, 10, 13, 14]);
-  assert.ok(POINTS8.every((i) => POINTS11.includes(i)) && ![6, 17, 18].some((i) => POINTS8.includes(i)));
+  assert.deepEqual(POINTS8, [0, 1, 2, 5, 6, 9, 10, 13]);
+  assert.ok(POINTS8.every((i) => POINTS11.includes(i)) && ![14, 17, 18].some((i) => POINTS8.includes(i)));
   assert.ok([4, 8, 12, 16, 20].every((i) => !POINTS16.includes(i)) && POINTS16.includes(0) && POINTS16.includes(19));
 });
 test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの6点の面は、そのまま。roll は、変わらない", () => {
@@ -286,9 +286,9 @@ test("指先と、指先に近い関節(第1関節)の10点が、手前に偏っ
   assert.ok(Math.abs(p16.tilt) > 2, "16点の面は、第1関節の偏りに、引きずられる: " + JSON.stringify(p16));
 });
 
-test("小指の2点(17、18)と、人差し指の第2関節(6)が、大きく、ずれていても、8点の面と、指の向き(roll)は、ずれない", () => {
+test("小指の2点(17、18)と、薬指の第2関節(14)が、大きく、ずれていても、8点の面と、指の向き(roll)は、ずれない", () => {
   const w = makeWorld({ pan: 10, tilt: 5, roll: 20 });
-  const bad = [6, 17, 18];
+  const bad = [14, 17, 18];
   const biased = w.map((q, i) => (bad.includes(i) ? { x: q.x + 0.03, y: q.y - 0.02, z: q.z - 0.05 } : q));
   const a = framePose(handFrame(w)), b = framePose(handFrame(biased));
   assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));

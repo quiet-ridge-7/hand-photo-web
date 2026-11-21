@@ -150,9 +150,9 @@ export const POINTS16 = ALL_POINTS.filter((i) => !TIPS.includes(i));
 //   11点 = 手首、親指の付け根(CMC、MCP)、4本の指の付け根(MCP)と、第2関節(PIP)。
 export const DIP_POINTS = [3, 7, 11, 15, 19];
 export const POINTS11 = POINTS16.filter((i) => !DIP_POINTS.includes(i));
-// さらに、小指の2点(付け根 17、第2関節 18)と、人差し指の第2関節(6)を除いた、8点。 基本の点(面のあてはめ・奥行きの色・指の向き・矢印の始点)。
-//   8点 = 手首(0)、親指の付け根(1、2)、人差し指の付け根(5)、中指の付け根と第2関節(9、10)、薬指の付け根と第2関節(13、14)。
-export const POINTS8 = [0, 1, 2, 5, 9, 10, 13, 14];
+// さらに、小指の2点(付け根 17、第2関節 18)と、薬指の第2関節(14)を除いた、8点。 基本の点(面のあてはめ・奥行きの色・指の向き・矢印の始点)。
+//   8点 = 手首(0)、親指の付け根(1、2)、人差し指の付け根と第2関節(5、6)、中指の付け根と第2関節(9、10)、薬指の付け根(13)。
+export const POINTS8 = [0, 1, 2, 5, 6, 9, 10, 13];
 
 export function handFrame(world, points = POINTS8) {
   if (!world || world.length < 21) return null;
