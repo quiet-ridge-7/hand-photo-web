@@ -240,8 +240,16 @@ function loop() {
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
+  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers);   // 向きの数字を、1行で、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
+}
+
+// 向きの数字(pan / tilt / roll)を、1行の文字にする。21点すべての面(panAll / tiltAll)も、比べるために、並べる
+const sgn = (v) => (v == null ? "  -  " : (v >= 0 ? "+" : "-") + Math.abs(v).toFixed(1).padStart(4, " "));
+function poseLine(n) {
+  if (n.pan === undefined) return "向き: (手が映ると、数字が出ます)";
+  return "pan " + sgn(n.pan) + "°  tilt " + sgn(n.tilt) + "°  roll " + sgn(n.roll) + "°   [21点: pan " + sgn(n.panAll) + "° tilt " + sgn(n.tiltAll) + "°]";
 }
 
 // ---- 撮影と保存 ----

@@ -135,6 +135,9 @@ try {
   await sleep(700);
   check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
 
+  await waitFor(`/pan\\s+[+-]\\s*\\d/.test(document.getElementById("pose-line").textContent)`, "向きの1行", 10000);
+  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列の、凡例や、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s+\[21点: pan/.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("depth-color").getBoundingClientRect().top`)), await text("#pose-line"));
+
   // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
   const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
   const zs = wd.map((q) => q.z), iNear = zs.indexOf(Math.min(...zs)), iFar = zs.indexOf(Math.max(...zs));
