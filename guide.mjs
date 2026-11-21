@@ -91,6 +91,49 @@ export function outlineShape(lm, frame) {
   return { hull, length, width, ratio: width / length, area, areaNorm: area / (palmL * palmL), palmW, palmL, palmRatio: palmW / palmL };
 }
 
+// ---- 分割モデル(対話型)で、実際の輪郭を取る ----
+// 手の点から、「ここは手です」と教える線(正の筆跡)を作る。 手のひらの真ん中と、親指・各指の付け根から先まで。 座標は 0〜1。
+export function handStrokes(lm) {
+  if (!lm || lm.length < 21) return [];
+  const clamp = (v) => Math.max(0.001, Math.min(0.999, v));
+  const pt = (i) => ({ x: clamp(lm[i].x), y: clamp(lm[i].y) });
+  const mid = (ids) => ({ x: clamp(ids.reduce((s, i) => s + lm[i].x, 0) / ids.length), y: clamp(ids.reduce((s, i) => s + lm[i].y, 0) / ids.length) });
+  const stroke = (point) => ({ brushMode: 1, point, isCompleted: true });
+  return [
+    stroke([mid([0, 5, 9, 13, 17]), mid([0, 9])]),                       // 手のひら
+    stroke([pt(1), pt(2), pt(3), pt(4)]),                                // 親指
+    ...FINGERS.map((f) => stroke([pt(f.mcp), pt(f.pip), pt(f.dip), pt(f.tip)])),   // 4本の指
+  ];
+}
+
+// 分割の地図(mask: 0〜1 の数字が、幅 mw × 高さ mh 並んだ物)から、手の形の数字を出す。 thr 以上の所が、手。
+//   area = 面積(画素)、areaNorm = area ÷ (手首〜中指の付け根)^2、length / width = 指の向きの、長さ / 直角の幅(画素)、ratio = width ÷ length。
+export function maskStats(mask, mw, mh, lm, frame, thr = 0.5) {
+  if (!mask || !lm || lm.length < 21) return null;
+  const P0 = px(lm[LM.WRIST], frame), P9 = px(lm[LM.MIDDLE_MCP], frame);
+  const palmL = dist(P0, P9);
+  if (palmL < 1e-6) return null;
+  const u = { x: (P9.x - P0.x) / palmL, y: (P9.y - P0.y) / palmL };
+  const sx = frame.w / mw, sy = frame.h / mh;
+  let n = 0, aMin = Infinity, aMax = -Infinity, cMin = Infinity, cMax = -Infinity;
+  for (let j = 0; j < mh; j++) {
+    for (let i = 0; i < mw; i++) {
+      if (mask[j * mw + i] < thr) continue;
+      const x = (i + 0.5) * sx, y = (j + 0.5) * sy;
+      const a = x * u.x + y * u.y, c = -x * u.y + y * u.x;
+      n++;
+      if (a < aMin) aMin = a;
+      if (a > aMax) aMax = a;
+      if (c < cMin) cMin = c;
+      if (c > cMax) cMax = c;
+    }
+  }
+  if (n === 0) return null;
+  const area = n * sx * sy;
+  const length = aMax - aMin + Math.abs(u.x) * sx + Math.abs(u.y) * sy, width = cMax - cMin + Math.abs(u.y) * sx + Math.abs(u.x) * sy;   // 端のマスの、半分ずつを、足す
+  return { area, areaNorm: area / (palmL * palmL), length, width, ratio: width / length };
+}
+
 // 手が、画面の中に、全部、入っているか
 export function insideFrame(lm, edge = T.edge) {
   return lm.every((p) => p.x >= edge && p.x <= 1 - edge && p.y >= edge && p.y <= 1 - edge);

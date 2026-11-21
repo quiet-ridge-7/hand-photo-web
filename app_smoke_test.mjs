@@ -65,7 +65,7 @@ try {
     if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); return; }
     if (d.method === "Network.requestWillBeSent") { try { const u = new URL(d.params.request.url); if (u.protocol === "http:" || u.protocol === "https:") hosts.add(u.host); } catch {} }
     if (d.method === "Runtime.exceptionThrown") pageErrors.push((d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
-    if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error" && !(d.params.args[0] && String(d.params.args[0].value ?? "").startsWith("INFO:"))) pageErrors.push(   /* INFO: は、MediaPipe の、情報メッセージ(エラーでは、ない) */ "console.error: " + d.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 160));
+    if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error" && !(d.params.args[0] && /^(INFO:|[IW]\d{4} \d\d:\d\d:)/.test(String(d.params.args[0].value ?? "")))) pageErrors.push(   /* INFO: と I・W で始まる記録(例 I1121 01:45:03)は、MediaPipe の、情報・警告のメッセージ(エラーでは、ない) */ "console.error: " + d.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 160));
   };
   const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async (expression) => { const r = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }); if (r.result.exceptionDetails) throw new Error("評価エラー: " + expression + " → " + JSON.stringify(r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails.text)); return r.result.result.value; };
@@ -161,6 +161,23 @@ try {
   for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }
   check("B3h チェックを外すと、点は、ふつうの色(黄色: R と G が高く、B が低い)に、戻る", cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100, JSON.stringify(cOff.map(Math.round)));
   await ev(`document.getElementById("depth-color").click(); true`);
+
+  // 実際の輪郭(分割モデル): チェックを入れると、モデルを読み込み、輪郭の数字が出る(偽の映像なので、形は問わない。動くことだけを見る)
+  check("B3s 実際の輪郭のチェックは、はじめは、オフ。モデルは、まだ読み込まない(通信していない)", !(await ev(`document.getElementById("seg-outline").checked`)) && !(await ev(`performance.getEntriesByType("resource").some((e) => e.name.includes("interactive_segmentation"))`)));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
+  await ev(`document.getElementById("seg-outline").click(); true`);
+  let segOk = true;
+  try {
+    await waitFor(`/準備ができました/.test(document.getElementById("seg-note").textContent)`, "輪郭のモデル", 60000);
+    await waitFor(`/実際の輪郭: 幅\\/長さ [0-9.]+\\s+面積 [0-9.]+\\s+\\([0-9]+ms\\)/.test(document.getElementById("pose-line").textContent)`, "輪郭の数字", 30000);
+  } catch (e) {
+    segOk = false;
+    console.log("   " + e.message + " / note=" + (await text("#seg-note")) + " / line=" + (await text("#pose-line")).split("\n").join(" | "));
+  }
+  check("B3t 実際の輪郭: チェックを入れると、モデルを読み込み、3行目に、『実際の輪郭: 幅/長さ … 面積 … (○ms)』が出る。エラーは出ない", segOk && !/エラー|できませんでした/.test(await text("#seg-note")), await text("#seg-note"));
+  await ev(`document.getElementById("seg-outline").click(); true`);
+  await waitFor(`!/実際の輪郭/.test(document.getElementById("pose-line").textContent)`, "チェックを外した後の、輪郭の数字の消去", 5000).catch(() => {});
+  check("B3u チェックを外すと、実際の輪郭の数字は、消える", !/実際の輪郭/.test(await text("#pose-line")));
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });

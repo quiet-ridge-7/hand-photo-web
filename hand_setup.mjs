@@ -1,5 +1,5 @@
 // hand_setup.mjs — MediaPipe(手の点を見つける部品)を、準備する。app.js からは、createHandLandmarker() を呼ぶだけ。
-import { HandLandmarker, FilesetResolver } from "./lib/mediapipe/vision_bundle.mjs";
+import { HandLandmarker, InteractiveSegmenter, FilesetResolver } from "./lib/mediapipe/vision_bundle.mjs";
 
 const WASM_DIR = "./lib/mediapipe/wasm";                  // MediaPipe の計算部分(WASM)の場所
 const MODEL_PATH = "./models/hand_landmarker.task";       // 手のモデルの場所
@@ -20,4 +20,15 @@ export async function createHandLandmarker() {
     minHandPresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
   });
+}
+
+// 実際の輪郭を取る「InteractiveSegmenter」(手の点を目印に、手の形を切り出す)を作って、返す。 チェックを入れた時だけ、呼ぶ(約29MB)
+const SEG_PATH = "./models/interactive_segmentation.task";
+export async function createHandSegmenter() {
+  const fileset = await FilesetResolver.forVisionTasks(WASM_DIR);
+  const buf = await fetch(SEG_PATH).then((r) => {
+    if (!r.ok) throw new Error("輪郭のモデルを、読み込めませんでした(" + r.status + ")");
+    return r.arrayBuffer();
+  });
+  return InteractiveSegmenter.createFromOptions(fileset, { baseOptions: { modelAssetBuffer: new Uint8Array(buf) } });
 }

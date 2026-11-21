@@ -5,3 +5,4 @@ captures/
 *.png.tmp
 Thumbs.db
 .DS_Store
+models/interactive_segmentation.task

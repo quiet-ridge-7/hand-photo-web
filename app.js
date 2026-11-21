@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
-import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, outlineShape } from "./guide.mjs";
+import { createHandLandmarker, createHandSegmenter } from "./hand_setup.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, outlineShape, handStrokes, maskStats } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -44,7 +44,17 @@ const state = {
   blob: null,
   filename: "",
   resultUrl: null,
+  seg: null,                // 輪郭の分割モデル(チェックを入れた時に、読み込む)
+  segLoading: false,
+  segBusy: false,
+  segLast: 0,               // 最後に分割した時刻
+  segCanvas: null,          // 分割の結果を、描いた絵(重ねて表示)
+  segStats: null,           // 分割の結果の数字
+  segMs: null,
 };
+const SEG_WIDTH = 640;      // 分割に渡す絵の幅(縦は、映像の比に合わせる)
+const SEG_EVERY_MS = 150;   // 分割の間隔(最低)
+const segSrc = document.createElement("canvas");
 
 // ---- 画面の文字 ----
 // 状態の文: カメラと、手の検出、2つの様子を、まとめて出す
@@ -131,11 +141,65 @@ function measureImage(lm, vw, vh) {
   return { ...combineMeasures(list), sharps: list.map((m) => Math.round(m.sharp)) };
 }
 
+// ---- 実際の輪郭(分割モデル) ----
+async function ensureSegmenter() {
+  if (state.seg || state.segLoading) return;
+  state.segLoading = true;
+  $("seg-note").textContent = "輪郭のモデルを読み込んでいます…";
+  try {
+    state.seg = await createHandSegmenter();
+    $("seg-note").textContent = "輪郭のモデルの準備ができました(橙の線 = 実際の輪郭)";
+  } catch (e) {
+    $("seg-note").textContent = "輪郭のモデルを、準備できませんでした(" + e.message + ")";
+    $("seg-outline").checked = false;
+  }
+  state.segLoading = false;
+}
+
+// 手の点を目印に、手の形を切り出し、輪郭(橙の線)と、うすい塗りを、絵にして、とっておく
+function runSegment(lm, frame, now) {
+  if (!state.seg || state.segBusy || now - state.segLast < SEG_EVERY_MS || !lm) return;
+  state.segBusy = true;
+  try {
+    const sw = SEG_WIDTH, sh = Math.round((SEG_WIDTH * frame.h) / frame.w);
+    if (segSrc.width !== sw || segSrc.height !== sh) { segSrc.width = sw; segSrc.height = sh; }
+    segSrc.getContext("2d").drawImage(video, 0, 0, sw, sh);
+    const t0 = performance.now();
+    state.seg.setImage(segSrc);
+    const res = state.seg.segment(handStrokes(lm));
+    const mask = res.getAsFloat32Array(), mw = res.width, mh = res.height;
+    state.segMs = Math.round(performance.now() - t0);
+    state.segStats = maskStats(mask, mw, mh, lm, frame);
+    if (!state.segCanvas) state.segCanvas = document.createElement("canvas");
+    const cv = state.segCanvas;
+    cv.width = mw;
+    cv.height = mh;
+    const img = new ImageData(mw, mh), d = img.data;
+    const on = (i, j) => i >= 0 && j >= 0 && i < mw && j < mh && mask[j * mw + i] >= 0.5;
+    for (let j = 0; j < mh; j++) {
+      for (let i = 0; i < mw; i++) {
+        if (!on(i, j)) continue;
+        const k = (j * mw + i) * 4, edge = !on(i - 1, j) || !on(i + 1, j) || !on(i, j - 1) || !on(i, j + 1);
+        d[k] = 255; d[k + 1] = edge ? 140 : 170; d[k + 2] = edge ? 0 : 60; d[k + 3] = edge ? 255 : 55;
+      }
+    }
+    cv.getContext("2d").putImageData(img, 0, 0);
+    res.close();
+  } catch (e) {
+    $("seg-note").textContent = "輪郭の分割で、エラーが出ました(" + e.message + ")";
+    state.segCanvas = null;
+    state.segStats = null;
+  }
+  state.segLast = now;
+  state.segBusy = false;
+}
+
 // ---- 手の点を、重ねて描く ----
 function drawHand(lm, ok, arrow = null, depth = null, outline = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
+  if (state.segCanvas && $("seg-outline").checked) octx.drawImage(state.segCanvas, 0, 0, w, h);   // 実際の輪郭(分割モデル)
   octx.lineWidth = Math.max(2, w / 400);
   octx.strokeStyle = "rgba(255,255,255,0.85)";
   if (outline && outline.hull.length > 2) {   // 輪郭(21点の、外側を結んだ形)を、水色で
@@ -249,6 +313,10 @@ function loop() {
     state.frames = [];
   }
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
+  const segOn = $("seg-outline").checked;
+  if (segOn && !state.seg) ensureSegmenter();
+  if (segOn && lm) runSegment(lm, frame, now);
+  if (!lm || !segOn) { state.segCanvas = null; state.segStats = null; }
   const outline = lm ? outlineShape(lm, frame) : null;
   drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null, outline);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
@@ -256,7 +324,7 @@ function loop() {
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
-  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + outlineLine(outline);   // 向きの数字を、1行で、いつも見える所に
+  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + outlineLine(outline) + segLine();   // 向きの数字を、1行で、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
@@ -273,6 +341,13 @@ function poseLine(n) {
 function outlineLine(o) {
   if (!o) return "";
   return "\n輪郭: 幅/長さ " + o.ratio.toFixed(2) + "  手のひら 幅/長さ " + o.palmRatio.toFixed(2) + "  面積 " + o.areaNorm.toFixed(2);
+}
+
+// 分割(実際の輪郭)の数字: 幅/長さ、面積(手首〜中指の付け根の2乗に対する倍率)、かかった時間
+function segLine() {
+  const s = state.segStats;
+  if (!$("seg-outline").checked || !s) return "";
+  return "\n実際の輪郭: 幅/長さ " + s.ratio.toFixed(2) + "  面積 " + s.areaNorm.toFixed(2) + "  (" + state.segMs + "ms)";
 }
 
 // ---- 撮影と保存 ----

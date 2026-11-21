@@ -41,6 +41,8 @@
         <button type="button" id="shoot">撮影</button>
         <button type="button" id="flip">カメラを切り替える</button>
       </div>
+      <label class="opt"><input type="checkbox" id="seg-outline"> 実際の輪郭(分割モデル。初めて入れると、約29MBを読み込みます)</label>
+      <p class="sub" id="seg-note"></p>
       <label class="opt"><input type="checkbox" id="depth-color" checked> 奥行きを、色で表す(8点の平均を 0 に)</label>
       <div id="depth-legend" aria-label="奥行きの色の見かた">
         <span>近い</span><div class="bar"></div><span>遠い</span>

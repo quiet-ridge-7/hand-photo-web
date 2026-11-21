@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, handStrokes, maskStats, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -431,6 +431,28 @@ test("輪郭: 前後に倒す(tilt)と、長さ が、縮む(幅/長さ は、�
   const r = (t) => outlineShape(flat2d(makeWorld({ tilt: t })), FRAME);
   assert.ok(r(0).ratio < r(30).ratio);
   assert.equal(outlineShape(null, FRAME), null);
+});
+
+test("分割: 手の点から、正の筆跡が6本(手のひら、親指、4本の指)。点は 0〜1 の中。点が足りない時は空", () => {
+  const h = makeHand({});
+  const s = handStrokes(h.lm);
+  assert.equal(s.length, 6);
+  assert.ok(s.every((k) => k.brushMode === 1 && k.isCompleted === true && k.point.length >= 2 && k.point.every((q) => q.x > 0 && q.x < 1 && q.y > 0 && q.y < 1)));
+  assert.deepEqual(handStrokes(null), []);
+  const edge = h.lm.map((q) => ({ ...q, x: 1.2, y: -0.1 }));
+  assert.ok(handStrokes(edge).every((k) => k.point.every((q) => q.x <= 0.999 && q.y >= 0.001)), "画面の外の点は、中に、おさめる");
+});
+test("分割: 地図の、面積・長さ・幅。四角い地図で、数字が合う。空の地図は null", () => {
+  const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
+  lm[0] = { x: 0.5, y: 0.8, z: 0 };   // 手首。 中指の付け根(9)は、真上
+  const h = { lm };
+  const mw = 160, mh = 90, mask = new Float32Array(mw * mh);
+  for (let j = 20; j < 60; j++) for (let i = 50; i < 80; i++) mask[j * mw + i] = 1;   // 30 × 40 マス(画面では 240 × 320 画素)
+  const s = maskStats(mask, mw, mh, h.lm, FRAME);
+  assert.ok(near(s.area, 30 * 40 * 64, 1) && near(s.width, 240, 1) && near(s.length, 320, 1), JSON.stringify(s));
+  assert.ok(near(s.ratio, 0.75, 0.01) && s.areaNorm > 0);
+  assert.equal(maskStats(new Float32Array(mw * mh), mw, mh, h.lm, FRAME), null);
+  assert.equal(maskStats(mask, mw, mh, null, FRAME), null);
 });
 
 // ---- 続ける時間 ----
