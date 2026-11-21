@@ -147,6 +147,11 @@ function drawHand(lm, ok, arrow = null, depth = null) {
     octx.strokeStyle = "rgba(0,0,0,0.6)";
     octx.lineWidth = Math.max(1, w / 500);
     lm.forEach((p, i) => {
+      if (depth[i] == null) {   // 指先の5点: 色を付けない(奥行きの平均にも、面の計算にも、使わない)。小さな、灰色の点
+        octx.fillStyle = "rgba(170,170,170,0.85)";
+        octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill();
+        return;
+      }
       const [cr, cg, cb] = depthColor(depth[i]);
       octx.fillStyle = "rgb(" + cr + "," + cg + "," + cb + ")";
       octx.beginPath(); octx.arc(p.x * w, p.y * h, r * 1.7, 0, Math.PI * 2); octx.fill(); octx.stroke();
@@ -245,7 +250,7 @@ function loop() {
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
 
-// 向きの数字(pan / tilt / roll)を、1行の文字にする。21点すべての面(panAll / tiltAll)も、比べるために、並べる
+// 向きの数字(pan / tilt / roll)を、1行の文字にする。(指先を除いた 16点の面) 21点すべての面(panAll / tiltAll)も、比べるために、並べる
 const sgn = (v) => (v == null ? "  -  " : (v >= 0 ? "+" : "-") + Math.abs(v).toFixed(1).padStart(4, " "));
 function poseLine(n) {
   if (n.pan === undefined) return "向き: (手が映ると、数字が出ます)";

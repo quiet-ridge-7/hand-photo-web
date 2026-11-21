@@ -140,7 +140,8 @@ try {
 
   // 奥行きの色: pan 30度で、いちばん近い点は、赤っぽく、いちばん遠い点は、青っぽい。チェックを外すと、色は、ふつうの色(黄色)に戻る
   const wd = makeWorld({ hand: "right", facing: "palm", pan: 30 });
-  const zs = wd.map((q) => q.z), iNear = zs.indexOf(Math.min(...zs)), iFar = zs.indexOf(Math.max(...zs));
+  const idx16 = [0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15, 17, 18, 19];   // 指先(4、8、12、16、20)を除いた 16点
+  const zs = idx16.map((i) => wd[i].z), iNear = idx16[zs.indexOf(Math.min(...zs))], iFar = idx16[zs.indexOf(Math.max(...zs))];
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
   await waitFor(`(() => { try { return Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).pan) > 25; } catch { return false; } })()`, "pan 30度の数字(奥行きの色の確認)", 10000);
   const lmNow = await ev(`window.__handNow.landmarks`);
@@ -148,7 +149,9 @@ try {
   let cNear = await rgbAt(iNear), cFar = await rgbAt(iFar);
   for (let k = 0; k < 100 && !(cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40); k++) { await sleep(100); cNear = await rgbAt(iNear); cFar = await rgbAt(iFar); }
   check("B3f 奥行きの色: いちばん近い点は、赤っぽい(R が、B より大きい)。いちばん遠い点は、青っぽい(B が、R より大きい)", cNear[0] > cNear[2] + 40 && cFar[2] > cFar[0] + 40, JSON.stringify({ near: cNear.map(Math.round), far: cFar.map(Math.round), iNear, iFar }));
-  check("B3g 確認用の数字に、奥行き(depthMm。21点)が出る。チェックは、はじめから、オン。凡例がある", /"depthMm"/.test(await text("#numbers-text")) && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
+  const cTip = await rgbAt(8);
+  check("B3f2 指先(8番)の点には、奥行きの色を付けない(灰色: R・G・B が、近い値)", Math.max(...cTip) - Math.min(...cTip) < 25 && cTip[0] > 120, JSON.stringify(cTip.map(Math.round)));
+  check("B3g 確認用の数字に、奥行き(depthMm。指先は x)が出る。チェックは、はじめから、オン。凡例がある", /"depthMm": "[^"]*x[^"]*x[^"]*x[^"]*x[^"]*x/.test(await text("#numbers-text")) && (await ev(`document.getElementById("depth-color").checked`)) && (await ev(`!!document.querySelector("#depth-legend .bar")`)));
   await ev(`document.getElementById("depth-color").click(); true`);
   let cOff = await rgbAt(iNear);
   for (let k = 0; k < 100 && !(cOff[0] > 180 && cOff[1] > 140 && cOff[2] < 100); k++) { await sleep(100); cOff = await rgbAt(iNear); }
@@ -219,7 +222,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   let pl = await place();
-  check("B19 広い画面(1280)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ(映像と、同じ高さの範囲で、同時に見える)", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl.numbers.top < pl.stage.bottom, JSON.stringify({ s: [pl.stage.left, pl.stage.right, pl.stage.top, pl.stage.bottom], n: [pl.numbers.left, pl.numbers.top] }));
+  const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { pose: r("pose-line"), num: r("numbers-text"), h: window.innerHeight }; })()`);
+  check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。向きの1行は、映像と、同じ高さの範囲に、ある。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.pose.top >= pl.stage.top - 1 && pl19.pose.bottom <= pl.stage.bottom && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], pose: pl19.pose, numTop: pl19.num.top, h: pl19.h }));
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(300);
   pl = await place();

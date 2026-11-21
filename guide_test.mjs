@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -170,11 +170,11 @@ test("向き: 3つを、同時に、回しても、それぞれの角度が、�
 test("向き: roll(画面の中で回す)は、angle(カメラからの、ずれ)を、変えない", () => {
   assert.ok(near(poseOf(makeWorld({ pan: 20, roll: 0 })).angle, poseOf(makeWorld({ pan: 20, roll: 50 })).angle, 0.3));
 });
-test("向き: 1点の偏りに強い。小指の付け根だけ、奥に 2cm ずれていても、3点の面より、手のひらの6点の向きの方が、ずれが小さい", () => {
+test("向き: 1点の偏りに強い。小指の付け根だけ、奥に 2cm ずれていても、3点の面より、16点の向きの方が、ずれが小さい", () => {
   const w = makeWorld({});
   w[17] = { ...w[17], z: w[17].z + 0.02 };
   const three = palmAngles(w), all = poseOf(w);
-  assert.ok(Math.abs(three.pan) > Math.abs(all.pan) * 1.2, JSON.stringify({ three, all }));   // 手のひらの6点は、3点より、ずれが小さい
+  assert.ok(Math.abs(three.pan) > Math.abs(all.pan) * 1.2, JSON.stringify({ three, all }));   // 16点は、3点より、ずれが小さい
 });
 test("ゆれをならす: ノイズのある向きを、5コマ平均すると、平均の誤差が、小さくなる。軸は、直交で、長さ 1", () => {
   let seed = 12345;
@@ -204,20 +204,26 @@ test("向き: 点が足りない・全部同じ位置なら null", () => {
 });
 
 // ---- 奥行き(平均を 0 に)と、色 ----
-test("奥行き: 平均を引くので、合計が 0。向きを変えても、平均が 0。点が足りなければ null", () => {
+test("奥行き: 指先の5点を除いた 16点の、平均を引くので、16点の合計が 0。指先は null。向きを変えても、平均が 0。点が足りなければ null", () => {
   for (const o of [{}, { pan: 25 }, { tilt: -20 }, { pan: 15, tilt: 10, roll: 30 }]) {
     const d = depthRelative(makeWorld(o));
     assert.equal(d.length, 21);
-    assert.ok(Math.abs(d.reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
+    assert.ok([4, 8, 12, 16, 20].every((i) => d[i] === null), "指先は、null");
+    assert.equal(d.filter((v) => v !== null).length, 16);
+    assert.ok(Math.abs(d.filter((v) => v !== null).reduce((s, v) => s + v, 0)) < 1e-12, JSON.stringify(o));
   }
+  const biased = makeWorld({}).map((q, i) => ([4, 8, 12, 16, 20].includes(i) ? { ...q, z: q.z - 0.05 } : q));
+  assert.ok(depthRelative(biased).every((v) => v === null || Math.abs(v) < 1e-12), "指先が、どんなに、ずれても、16点の平均や、色は、変わらない");
   assert.equal(depthRelative(null), null);
   assert.equal(depthRelative([]), null);
   assert.equal(depthRelative(makeWorld({}).map((q, i) => (i === 3 ? { x: 0, y: 0, z: NaN } : q))), null);
+  assert.ok(depthRelative(makeWorld({}).map((q, i) => (i === 4 ? { x: 0, y: 0, z: NaN } : q))) !== null, "指先(4番)が、壊れていても、16点には、関係ない");
 });
 test("奥行き: 平らな手を、まっすぐ向けると、全部 0。pan で、ひねると、片側が近く、反対側が遠い", () => {
   assert.ok(depthRelative(makeWorld({})).every((v) => Math.abs(v) < 1e-12));
   const w = makeWorld({ pan: 30 }), d = depthRelative(w);
-  const left = w.findIndex((q) => q.x === Math.min(...w.map((p) => p.x))), right = w.findIndex((q) => q.x === Math.max(...w.map((p) => p.x)));
+  const xs = POINTS16.map((i) => w[i].x);   // 色を付ける 16点の中で、いちばん左と、いちばん右の点
+  const left = POINTS16[xs.indexOf(Math.min(...xs))], right = POINTS16[xs.indexOf(Math.max(...xs))];
   assert.ok(d[left] * d[right] < 0 && Math.abs(d[left]) > 0.01 && Math.abs(d[right]) > 0.01, JSON.stringify({ l: d[left], r: d[right] }));
 });
 test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤。遠い(+3cm)は、青。±3cm を超えても、それ以上は、濃くならない。真ん中は、中間", () => {
@@ -232,7 +238,9 @@ test("奥行きの色: 平均(0)は、白っぽい灰色。近い(-3cm)は、赤
 test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | 薬指 | 小指 の順に、mm で出す。確認用の数字に、depthMm として、出る", () => {
   const txt = depthText(makeWorld({ pan: 30 }));
   assert.equal(txt.split("|").length, 6);
-  assert.equal(txt.replace(/\|/g, " ").trim().split(/\s+/).length, 21);
+  const tokens = txt.replace(/\|/g, " ").trim().split(/\s+/);
+  assert.equal(tokens.length, 21);
+  assert.equal(tokens.filter((v) => v === "x").length, 5, "指先の5点は、x");
   assert.equal(depthText(null), null);
   const hand = makeHand({ facing: "palm" });
   const r = evaluate({ mode: "palm", landmarks: hand.lm, label: hand.label, frame: FRAME, ...good, world: makeWorld({ pan: 30 }) });
@@ -241,20 +249,23 @@ test("奥行きの文字: 21個を、手首 | 親指 | 人差し指 | 中指 | �
 });
 
 // ---- 指先の奥行きの偏りに強い(手のひらの点だけで、面を出す) ----
-test("指先の5点が、いつも手前(-3cm)に推定されても、手のひらの点だけの面は、ずれない。21点すべての面は、前に倒れて見える", () => {
+test("指先の5点が、いつも手前(-3cm)に推定されても、指先を除いた 16点の面は、ずれない。21点すべての面は、前に倒れて見える", () => {
   const w = makeWorld({});
   const biased = w.map((q, i) => ([4, 8, 12, 16, 20].includes(i) ? { ...q, z: q.z - 0.03 } : q));   // 指先だけ、手前に、3cm
-  const palm = framePose(handFrame(biased)), all = framePose(handFrame(biased, ALL_POINTS));
+  const p16 = framePose(handFrame(biased)), palm = framePose(handFrame(biased, PALM_POINTS)), all = framePose(handFrame(biased, ALL_POINTS));
+  assert.ok(Math.abs(p16.tilt) < 0.5 && Math.abs(p16.pan) < 0.5, JSON.stringify(p16));
   assert.ok(Math.abs(palm.tilt) < 0.5 && Math.abs(palm.pan) < 0.5, JSON.stringify(palm));
   assert.ok(Math.abs(all.tilt) > 5, "21点の面は、偏りに、引きずられる: " + JSON.stringify(all));
   assert.deepEqual(PALM_POINTS, [0, 1, 5, 9, 13, 17]);
   assert.equal(ALL_POINTS.length, 21);
+  assert.equal(POINTS16.length, 16);
+  assert.ok([4, 8, 12, 16, 20].every((i) => !POINTS16.includes(i)) && POINTS16.includes(0) && POINTS16.includes(19));
 });
-test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの点の面は、そのまま。roll は、変わらない", () => {
+test("指の関節・指先も、全部、手前に偏っていても(指を、反らせた時のように)、手のひらの6点の面は、そのまま。roll は、変わらない", () => {
   const w = makeWorld({ pan: 20, tilt: -10, roll: 15 });
   const fingers = [3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20];
   const biased = w.map((q, i) => (fingers.includes(i) ? { ...q, z: q.z - 0.02 } : q));
-  const a = framePose(handFrame(w)), b = framePose(handFrame(biased));
+  const a = framePose(handFrame(w, PALM_POINTS)), b = framePose(handFrame(biased, PALM_POINTS));   // 手のひらの6点なら、指の偏りは、無関係
   assert.ok(Math.abs(a.pan - b.pan) < 0.5 && Math.abs(a.tilt - b.tilt) < 0.5 && Math.abs(a.roll - b.roll) < 0.5, JSON.stringify({ a, b }));
 });
 
