@@ -89,7 +89,7 @@ try {
   await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "手のモデルの読み込み(WASM)", 40000);
   check("A2 本物の手のモデル(MediaPipe)が、読み込めた", true);
   await waitFor(`document.getElementById("guide").textContent.includes("手を、画面に、映してください")`, "手が無い時の、ガイド", 15000);
-  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(12)", (await ev(`document.querySelectorAll("#checks li").length`)) === 12, await text("#guide"));
+  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(11)", (await ev(`document.querySelectorAll("#checks li").length`)) === 11, await text("#guide"));
   check("A3v 画面に、ファイルの版が出る(app と guide が、同じ。古いファイルが、混ざっていない)", /^版: app (v\d+) \/ guide \1$/.test(await text("#version")), await text("#version"));
   check("A4 手が無い時、枠は、緑にならない。撮影は、自動では、始まらない", !(await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await ev(`document.getElementById("result").hidden`)));
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
@@ -118,26 +118,20 @@ try {
   await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
 
-  // 手の形のガイド: 手のひらモードで、ガイド(うすい形)を出し、いまの手との、一致した面積(%)を出す
-  const pcts = async () => { const m = (await text("#match-line")).match(/そのまま\s*(\d+)%\s+形だけ[^0-9]*(\d+)%/); return m ? [Number(m[1]), Number(m[2])] : null; };
+  // 手の形のガイド(うすい形): 手のひらモードで、画面の真ん中に出る。いまの手と重なっていれば(一致 55%以上)緑、そうでなければ白
+  //   ガイドだけの画素(透明度 40〜75)の、平均の色で見る
+  const guidePix = () => ev(`(() => { const c = document.getElementById("overlay"); const x0 = Math.round(c.width * 0.42), y0 = Math.round(c.height * 0.55); const d = c.getContext("2d").getImageData(x0, y0, Math.round(c.width * 0.16), Math.round(c.height * 0.2)).data; let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 3] >= 40 && d[i + 3] <= 75) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; } } return n ? { n, r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { n: 0 }; })()`);
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
-  await waitFor(`/ガイドとの一致\(面積\): そのまま/.test(document.getElementById("match-line").textContent)`, "ガイドとの一致", 8000).catch(() => {});
-  const g1 = await pcts();
-  check("G1 手のひらモード: 3行目に『ガイドとの一致(面積): そのまま ○% 形だけ ○%』が出る。ガイドと同じ位置の手は、高い(そのまま 60%以上、形だけ 80%以上)", !!g1 && g1[0] >= 60 && g1[1] >= 80, JSON.stringify(g1));
+  let gp = { n: 0 };
+  for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && gp.g - gp.r > 50) break; await sleep(100); }
+  check("G1 手のひらモード: ガイド(うすい形)が出ている。ガイドと同じ位置の手(一致 55%以上)では、ガイドは緑", gp.n > 50 && gp.g - gp.r > 50, JSON.stringify(gp));
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
-  let g2 = null;
-  for (let k = 0; k < 60; k++) { g2 = await pcts(); if (g2 && g1 && g2[0] < g1[0] - 15) break; await sleep(100); }
-  check("G2 手を右にずらすと、『そのまま』は下がり、『形だけ』は、あまり変わらない", !!g2 && !!g1 && g2[0] < g1[0] - 15 && g2[1] >= g1[1] - 10, JSON.stringify([g1, g2]));
-  const guideLi = () => ev(`(() => { const li = [...document.querySelectorAll("#checks li")].find((l) => l.textContent.includes("ガイドに重なっている")); return li ? li.className : null; })()`);
-  check("G5 チェック一覧に『ガイドに重なっている』がある。ずらして(一致が下がる)と、そろっていない(ng)", (await guideLi()) === "ng", String(await guideLi()));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
-  let gl = null;
-  for (let k = 0; k < 60; k++) { gl = await guideLi(); if (gl === "ok") break; await sleep(100); }
-  check("G6 ガイドに重ねると(一致 55%以上)、『ガイドに重なっている』が、そろう(ok)", gl === "ok", String(gl));
+  for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && Math.abs(gp.g - gp.r) < 20) break; await sleep(100); }
+  check("G2 手を右にずらして、一致が下がると、ガイドは、白に戻る", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
   await ev(`window.__handNow = null; true`);
-  await waitFor(`!/ガイドとの一致\(面積\)/.test(document.getElementById("match-line").textContent)`, "手を外した後", 8000).catch(() => {});
-  const guideAlpha = await ev(`(() => { const c = document.getElementById("overlay"); const d = c.getContext("2d").getImageData(Math.round(c.width * 0.5) - 3, Math.round(c.height * 0.6) - 3, 6, 6).data; let s = 0; for (let i = 3; i < d.length; i += 4) s += d[i]; return s / (d.length / 4); })()`);
-  check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(手のひらの中ほどの絵に、色がある)", guideAlpha > 20, String(guideAlpha));
+  await sleep(500);
+  gp = await guidePix();
+  check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(白)", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
 
   // 全部そろった手 → 自動撮影(偽のカメラの、明るさ・くっきり度が、足りない時は、数字を、出して、知らせる)
   await setHand({ hand: "right", facing: "palm", scale: 0.8 });
@@ -180,9 +174,11 @@ try {
   check("B11 「指先」を選ぶと、「5本まとめて / 1本ずつ」が、出る。チェック項目は、指先用(8項目)", !(await ev(`document.getElementById("tip-sub").hidden`)) && (await ev(`document.querySelectorAll("#checks li").length`)) === 8, String(await ev(`document.querySelectorAll("#checks li").length`)));
   await ev(`document.querySelector('#tip-sub button[data-sub="tip1"]').click(); true`);
   check("B12 「1本ずつ」に切り替わる(説明が、変わる)", /撮りたい指/.test(await text("#mode-help")), await text("#mode-help"));
+  await ev(`window.__handNow = null; true`);
+  await sleep(500);
+  const gpTip = await guidePix();
+  check("G4 指先モードでは、ガイド(うすい形)は、出さない", gpTip.n === 0, JSON.stringify(gpTip));
   await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });
-  await sleep(600);
-  check("G4 指先モードでは、ガイドとの一致は、出さない", !/ガイドとの一致/.test(await text("#match-line")), await text("#match-line"));
   await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
   check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
 
@@ -206,8 +202,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   let pl = await place();
-  const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { pose: r("match-line"), num: r("numbers-text"), h: window.innerHeight }; })()`);
-  check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。ガイドの一致の1行は、映像と、同じ高さの範囲に、ある。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.pose.top >= pl.stage.top - 1 && pl19.pose.bottom <= pl.stage.bottom && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], pose: pl19.pose, numTop: pl19.num.top, h: pl19.h }));
+  const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { num: r("numbers-text"), h: window.innerHeight }; })()`);
+  check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], numTop: pl19.num.top, h: pl19.h }));
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(300);
   pl = await place();

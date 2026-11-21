@@ -235,19 +235,21 @@ test("ガイドとの一致: 手の甲のガイドに、手のひらの手を重
   assert.equal(maskIoU(null, gb.sil), null);
 });
 
-test("ガイドに重なっている: 一致(そのまま)が 55% 未満だと、条件が、そろわない。ガイドの文が、出る。55% 以上で、そろう。渡さない時(試験など)は、判定しない。指先モードには、無い", () => {
+test("ガイドの一致は、条件に入れない: 一致(そのまま)を渡しても、チェック項目は、増えず、判定も、変わらない", () => {
   const hand = makeHand({ hand: "right", facing: "palm" });
-  const at = (o) => run("palm", hand, o);
-  const low = at({ guideOverlap: 0.21 });
-  assert.ok(!low.allOk && low.checks.find((c) => c.id === "guide").ok === false && low.guide === "手を、ガイドの形に、重ねてください" && low.numbers.guideOverlap === 21, low.guide);
-  const edge = at({ guideOverlap: T.guideOverlap }), high = at({ guideOverlap: 0.9 }), none = at({});
-  assert.ok(edge.allOk && high.allOk && none.allOk && none.numbers.guideOverlap === undefined);
-  assert.ok(checkList("palm").some((c) => c.id === "guide") && checkList("back").some((c) => c.id === "guide") && !checkList("tip5").some((c) => c.id === "guide") && !checkList("tip1").some((c) => c.id === "guide"));
-  assert.ok(!run("tip5", makeHand({ hand: "right", facing: "back", scale: 0.8 }), { guideOverlap: 0.1 }).checks.some((c) => c.id === "guide"));
+  assert.ok(!checkList("palm").some((c) => c.id === "guide") && !checkList("back").some((c) => c.id === "guide"));
+  const a = run("palm", hand), b = run("palm", hand, { guideOverlap: 0.05 });
+  assert.equal(a.allOk, true);
+  assert.equal(b.allOk, true);
+  assert.equal(b.checks.length, a.checks.length);
+  assert.equal(b.numbers.guideOverlap, undefined);
 });
-test("ガイドに重なっている: ほかの条件が先。近さが、足りなければ、近さの文が、出る(ガイドの文は、その後)", () => {
-  const far = run("palm", makeHand({ hand: "right", facing: "palm", scale: 0.3 }), { guideOverlap: 0.1 });
-  assert.equal(far.guide, "もう少し、近づけてください");
+test("ガイドとの一致: withShape を false にすると、形だけ(shape)は、計算しない。そのまま(overlap)は、同じ", () => {
+  const g = makeGuide(FRAME, { hand: "right", facing: "palm" }), h = makeHand({ hand: "right", facing: "palm", cx: 0.6 });
+  const full = guideMatch(h.lm, g, FRAME), light = guideMatch(h.lm, g, FRAME, false);
+  assert.equal(light.shape, null);
+  assert.equal(light.overlap, full.overlap);
+  assert.ok(full.shape != null);
 });
 
 // ---- 続ける時間 ----

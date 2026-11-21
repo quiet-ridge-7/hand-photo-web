@@ -3,7 +3,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, MODES, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
 
-const APP_VERSION = "v12";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v13";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -167,13 +167,6 @@ function drawGuide(guide, matched) {
   octx.restore();
 }
 
-// ガイドとの一致した面積(%)
-function guideLine(m) {
-  if (!m || m.overlap == null) return "ガイドとの一致(面積): (ガイドに、手を重ねると、数字が出ます)";
-  const pc = (v) => (v == null ? "-" : String(Math.round(v * 100)).padStart(3, " ") + "%");
-  return "ガイドとの一致(面積): そのまま " + pc(m.overlap) + "  形だけ(位置・向き・大きさを、そろえて) " + pc(m.shape);
-}
-
 // ---- 手の点を、重ねて描く ----
 function drawHand(lm, ok, guide = null, matched = false) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
@@ -229,15 +222,14 @@ function loop() {
     if (!state.guide || state.guide.key !== gk) state.guide = { key: gk, g: makeGuide(frame, { hand: state.guideHand, facing: state.mode }) };
     guide = state.guide.g;
   }
-  const gm = guide && lm ? guideMatch(lm, guide, frame) : null;
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, guideOverlap: gm ? gm.overlap : null });   // ガイドとの一致(そのまま)も、条件に入る
+  const gm = guide && lm ? guideMatch(lm, guide, frame, false) : null;   // 一致(そのまま)だけ。ガイドの色(緑 / 白)に使う
+  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp });
   drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
-  if (state.frameCount % 2 === 0) $("match-line").textContent = guide ? guideLine(gm) : "";   // ガイドとの一致を、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
