@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
+import { T, MODES, evaluate, facingOf, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -220,8 +220,7 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp });
-  if (r.numbers.hand) state.guideHand = r.numbers.hand;
+  if (lm) state.guideHand = facingOf(lm, label, frame).hand;   // ガイドの形に使う、手の左右
   let guide = null;
   if (state.mode === "palm" || state.mode === "back") {   // 指先のモードでは、ガイドは、出さない
     const gk = [vw, vh, state.guideHand, state.mode].join();
@@ -229,6 +228,7 @@ function loop() {
     guide = state.guide.g;
   }
   const gm = guide && lm ? guideMatch(lm, guide, frame) : null;
+  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, guideOverlap: gm ? gm.overlap : null });   // ガイドとの一致(そのまま)も、条件に入る
   drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);

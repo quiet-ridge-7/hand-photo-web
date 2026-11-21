@@ -89,7 +89,7 @@ try {
   await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "手のモデルの読み込み(WASM)", 40000);
   check("A2 本物の手のモデル(MediaPipe)が、読み込めた", true);
   await waitFor(`document.getElementById("guide").textContent.includes("手を、画面に、映してください")`, "手が無い時の、ガイド", 15000);
-  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(11)", (await ev(`document.querySelectorAll("#checks li").length`)) === 11, await text("#guide"));
+  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(12)", (await ev(`document.querySelectorAll("#checks li").length`)) === 12, await text("#guide"));
   check("A4 手が無い時、枠は、緑にならない。撮影は、自動では、始まらない", !(await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await ev(`document.getElementById("result").hidden`)));
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
 
@@ -127,6 +127,12 @@ try {
   let g2 = null;
   for (let k = 0; k < 60; k++) { g2 = await pcts(); if (g2 && g1 && g2[0] < g1[0] - 15) break; await sleep(100); }
   check("G2 手を右にずらすと、『そのまま』は下がり、『形だけ』は、あまり変わらない", !!g2 && !!g1 && g2[0] < g1[0] - 15 && g2[1] >= g1[1] - 10, JSON.stringify([g1, g2]));
+  const guideLi = () => ev(`(() => { const li = [...document.querySelectorAll("#checks li")].find((l) => l.textContent.includes("ガイドに重なっている")); return li ? li.className : null; })()`);
+  check("G5 チェック一覧に『ガイドに重なっている』がある。ずらして(一致が下がる)と、そろっていない(ng)", (await guideLi()) === "ng", String(await guideLi()));
+  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
+  let gl = null;
+  for (let k = 0; k < 60; k++) { gl = await guideLi(); if (gl === "ok") break; await sleep(100); }
+  check("G6 ガイドに重ねると(一致 55%以上)、『ガイドに重なっている』が、そろう(ok)", gl === "ok", String(gl));
   await ev(`window.__handNow = null; true`);
   await waitFor(`!/ガイドとの一致\(面積\)/.test(document.getElementById("match-line").textContent)`, "手を外した後", 8000).catch(() => {});
   const guideAlpha = await ev(`(() => { const c = document.getElementById("overlay"); const d = c.getContext("2d").getImageData(Math.round(c.width * 0.5) - 3, Math.round(c.height * 0.6) - 3, 6, 6).data; let s = 0; for (let i = 3; i < d.length; i += 4) s += d[i]; return s / (d.length / 4); })()`);
