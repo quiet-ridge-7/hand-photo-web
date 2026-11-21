@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, tipSegments, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
+  meanLuma, toGray, sharpness, palmAngles, eigenSym3, handFrame, framePose, smoothFrame, normalArrow, PALM_POINTS, ALL_POINTS, POINTS16, POINTS11, POINTS8, DIP_POINTS, depthRelative, depthColor, depthText, convexHull, outlineShape, patchCenters, combineMeasures, checkList, evaluate, holdProgress } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand, makeWorld } from "./test_hands.mjs";
 
 const failures = [];
@@ -408,6 +408,29 @@ test("指先(1本ずつ): 中央に近い指先が、撮る相手。その指が
 test("指先モードの、チェック項目は、手のひら / 甲と、違う(爪の側、指先の大きさ)", () => {
   const ids = checkList("tip5").map((c) => c.id);
   assert.ok(ids.includes("tipsize") && ids.includes("facing") && !ids.includes("open"));
+});
+
+// ---- 輪郭 ----
+// 3次元の手を、真正面から見た、2次元の点にする(わかりやすく、x, y だけ。単位は 画面の短い辺 = 0.35m)
+const flat2d = (w) => w.map((q) => ({ x: 0.5 + q.x / 0.35 * (FRAME.h / FRAME.w), y: 0.5 + q.y / 0.35, z: 0 }));
+test("輪郭: 凸包は、四角の点だけ残し、中の点は、捨てる", () => {
+  const h = convexHull([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 5, y: 5 }, { x: 5, y: 0 }]);
+  assert.equal(h.length, 4);
+});
+test("輪郭: 手を、画面の中で回しても(roll)、幅/長さ と 面積 は、変わらない", () => {
+  const a = outlineShape(flat2d(makeWorld({ roll: 0 })), FRAME), b = outlineShape(flat2d(makeWorld({ roll: 40 })), FRAME);
+  assert.ok(near(a.ratio, b.ratio, 0.02) && near(a.areaNorm, b.areaNorm, 0.02) && near(a.palmRatio, b.palmRatio, 0.02), JSON.stringify([a.ratio, b.ratio]));
+});
+test("輪郭: 左右にひねる(pan)と、幅/長さ が、縮む。大きく、ひねるほど、縮む。符号が、逆でも、同じ", () => {
+  const r = (p) => outlineShape(flat2d(makeWorld({ pan: p })), FRAME);
+  assert.ok(r(0).ratio > r(30).ratio && r(30).ratio > r(55).ratio);
+  assert.ok(near(r(30).ratio, r(-30).ratio, 0.01));
+  assert.ok(r(0).palmRatio > r(30).palmRatio);
+});
+test("輪郭: 前後に倒す(tilt)と、長さ が、縮む(幅/長さ は、増える)。 点が足りない時は null", () => {
+  const r = (t) => outlineShape(flat2d(makeWorld({ tilt: t })), FRAME);
+  assert.ok(r(0).ratio < r(30).ratio);
+  assert.equal(outlineShape(null, FRAME), null);
 });
 
 // ---- 続ける時間 ----

@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, depthRelative, depthColor, outlineShape } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -132,12 +132,22 @@ function measureImage(lm, vw, vh) {
 }
 
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok, arrow = null, depth = null) {
+function drawHand(lm, ok, arrow = null, depth = null, outline = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
   octx.lineWidth = Math.max(2, w / 400);
   octx.strokeStyle = "rgba(255,255,255,0.85)";
+  if (outline && outline.hull.length > 2) {   // 輪郭(21点の、外側を結んだ形)を、水色で
+    octx.save();
+    octx.strokeStyle = "#35c9ff";
+    octx.lineWidth = Math.max(3, w / 300);
+    octx.beginPath();
+    outline.hull.forEach((q, i) => (i ? octx.lineTo(q.x, q.y) : octx.moveTo(q.x, q.y)));
+    octx.closePath();
+    octx.stroke();
+    octx.restore();
+  }
   octx.beginPath();
   for (const [a, b] of CONNECTIONS) { octx.moveTo(lm[a].x * w, lm[a].y * h); octx.lineTo(lm[b].x * w, lm[b].y * h); }
   octx.stroke();
@@ -239,13 +249,14 @@ function loop() {
     state.frames = [];
   }
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
-  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
+  const outline = lm ? outlineShape(lm, frame) : null;
+  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null, outline);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
-  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers);   // 向きの数字を、1行で、いつも見える所に
+  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + outlineLine(outline);   // 向きの数字を、1行で、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
 }
@@ -256,6 +267,12 @@ function poseLine(n) {
   if (n.pan === undefined) return "向き: (手が映ると、数字が出ます)";
   const pair = (p, t) => "(" + sgn(p).trim() + "," + sgn(t).trim() + ")";
   return "pan " + sgn(n.pan) + "°  tilt " + sgn(n.tilt) + "°  roll " + sgn(n.roll) + "°\n比較(pan,tilt): 11点 " + pair(n.pan11, n.tilt11) + " 16点 " + pair(n.pan16, n.tilt16) + " 21点 " + pair(n.panAll, n.tiltAll);
+}
+
+// 輪郭の形の数字(画面の中の、2次元)。 幅 ÷ 長さ(輪郭)、手のひらの 幅 ÷ 長さ、面積(手首〜中指の付け根の2乗に対する倍率)
+function outlineLine(o) {
+  if (!o) return "";
+  return "\n輪郭: 幅/長さ " + o.ratio.toFixed(2) + "  手のひら 幅/長さ " + o.palmRatio.toFixed(2) + "  面積 " + o.areaNorm.toFixed(2);
 }
 
 // ---- 撮影と保存 ----

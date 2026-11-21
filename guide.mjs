@@ -57,6 +57,40 @@ export function bbox(lm) {
   return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
 }
 
+// ---- 輪郭(画面の中の、手の形) ----
+// 21点の、いちばん外側を結んだ、凸の形(凸包)。 画素の点の、並び(時計回りか、反時計回りか)で返す。
+//   指の間は、ふくらむので、粗い輪郭。(本物の輪郭は、画像分割モデルが、必要)
+export function convexHull(pts) {
+  const p = pts.map((q) => ({ x: q.x, y: q.y })).sort((a, b) => a.x - b.x || a.y - b.y);
+  if (p.length < 3) return p;
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [], upper = [];
+  for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
+  for (const q of [...p].reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
+// 輪郭の形の数字(画面の中の、2次元だけ。向きに、よらない)。
+//   指の向き = 手首(0)から中指の付け根(9)。 length = 輪郭の、指の向きの、長さ。 width = 指の向きに、直角の、幅。
+//   area = 輪郭の面積。 areaNorm = area ÷ (手首〜中指の付け根)^2。 palmW / palmL = 手のひらの幅(人差し指の付け根 5 〜 小指の付け根 17)/ 長さ(0 〜 9)。
+//   手を、カメラに対して傾けると、傾けた方向の、幅(か長さ)が、縮む。
+export function outlineShape(lm, frame) {
+  if (!lm || lm.length < 21) return null;
+  const P = lm.map((q) => px(q, frame));
+  const hull = convexHull(P);
+  const palmL = dist(P[LM.WRIST], P[LM.MIDDLE_MCP]);
+  if (hull.length < 3 || palmL < 1e-6) return null;
+  const u = { x: (P[LM.MIDDLE_MCP].x - P[LM.WRIST].x) / palmL, y: (P[LM.MIDDLE_MCP].y - P[LM.WRIST].y) / palmL };
+  const along = hull.map((q) => q.x * u.x + q.y * u.y), across = hull.map((q) => -q.x * u.y + q.y * u.x);
+  const length = Math.max(...along) - Math.min(...along), width = Math.max(...across) - Math.min(...across);
+  let area = 0;
+  for (let i = 0; i < hull.length; i++) { const a = hull[i], b = hull[(i + 1) % hull.length]; area += a.x * b.y - b.x * a.y; }
+  area = Math.abs(area) / 2;
+  const palmW = dist(P[LM.INDEX_MCP], P[LM.PINKY_MCP]);
+  return { hull, length, width, ratio: width / length, area, areaNorm: area / (palmL * palmL), palmW, palmL, palmRatio: palmW / palmL };
+}
+
 // 手が、画面の中に、全部、入っているか
 export function insideFrame(lm, edge = T.edge) {
   return lm.every((p) => p.x >= edge && p.x <= 1 - edge && p.y >= edge && p.y <= 1 - edge);
