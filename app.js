@@ -44,16 +44,16 @@ const state = {
   blob: null,
   filename: "",
   resultUrl: null,
-  seg: null,                // 輪郭の分割モデル(チェックを入れた時に、読み込む)
+  seg: null,                // 輪郭の分割モデル(ボタンを、初めて押した時に、読み込む)
   segLoading: false,
   segBusy: false,
-  segLast: 0,               // 最後に分割した時刻
+  lastLm: null,             // 最後に見つけた、手の点と、映像の大きさ(ボタンを押した時に、使う)
+  lastFrame: null,
   segCanvas: null,          // 分割の結果を、描いた絵(重ねて表示)
   segStats: null,           // 分割の結果の数字
   segMs: null,
 };
 const SEG_WIDTH = 640;      // 分割に渡す絵の幅(縦は、映像の比に合わせる)
-const SEG_EVERY_MS = 150;   // 分割の間隔(最低)
 const segSrc = document.createElement("canvas");
 
 // ---- 画面の文字 ----
@@ -143,24 +143,32 @@ function measureImage(lm, vw, vh) {
 
 // ---- 実際の輪郭(分割モデル) ----
 async function ensureSegmenter() {
-  if (state.seg || state.segLoading) return;
+  if (state.seg) return true;
+  if (state.segLoading) return false;
   state.segLoading = true;
-  $("seg-note").textContent = "輪郭のモデルを読み込んでいます…";
+  $("seg-note").textContent = "輪郭のモデルを読み込んでいます(初めてだけ。約29MB)…";
   try {
     state.seg = await createHandSegmenter();
-    $("seg-note").textContent = "輪郭のモデルの準備ができました(橙の線 = 実際の輪郭)";
   } catch (e) {
     $("seg-note").textContent = "輪郭のモデルを、準備できませんでした(" + e.message + ")";
-    $("seg-outline").checked = false;
   }
   state.segLoading = false;
+  return !!state.seg;
 }
 
-// 手の点を目印に、手の形を切り出し、輪郭(橙の線)と、うすい塗りを、絵にして、とっておく
-function runSegment(lm, frame, now) {
-  if (!state.seg || state.segBusy || now - state.segLast < SEG_EVERY_MS || !lm) return;
+// ボタンを押した時に、1回だけ、手の点を目印に、手の形を切り出し、輪郭(橙の線)と、うすい塗りを、絵にして、とっておく。
+//   1回に、数秒〜十数秒かかり、その間、画面が止まる(だから、毎コマは、やらない)。
+async function segmentOnce() {
+  if (state.segBusy) return;
+  const lm = state.lastLm, frame = state.lastFrame;
+  if (!lm || !frame) { $("seg-note").textContent = "手が映っていません。手を映して、止めてから、押してください"; return; }
   state.segBusy = true;
+  $("seg-note").textContent = "輪郭を取っています(数秒かかります。画面は、止まります)…";
+  await new Promise((resolve) => setTimeout(resolve, 80));   // 上の文字を、先に、画面に出す
   try {
+    if (!(await ensureSegmenter())) { state.segBusy = false; return; }
+    $("seg-note").textContent = "輪郭を取っています(数秒かかります。画面は、止まります)…";
+    await new Promise((resolve) => setTimeout(resolve, 80));
     const sw = SEG_WIDTH, sh = Math.round((SEG_WIDTH * frame.h) / frame.w);
     if (segSrc.width !== sw || segSrc.height !== sh) { segSrc.width = sw; segSrc.height = sh; }
     segSrc.getContext("2d").drawImage(video, 0, 0, sw, sh);
@@ -185,13 +193,19 @@ function runSegment(lm, frame, now) {
     }
     cv.getContext("2d").putImageData(img, 0, 0);
     res.close();
+    $("seg-note").textContent = "輪郭を取りました(" + (state.segMs / 1000).toFixed(1) + "秒)。橙の線 = 実際の輪郭。手を動かすと、ずれます(もう一度、押すと、取り直します)";
   } catch (e) {
     $("seg-note").textContent = "輪郭の分割で、エラーが出ました(" + e.message + ")";
     state.segCanvas = null;
     state.segStats = null;
   }
-  state.segLast = now;
   state.segBusy = false;
+}
+
+function clearSegment() {
+  state.segCanvas = null;
+  state.segStats = null;
+  $("seg-note").textContent = "";
 }
 
 // ---- 手の点を、重ねて描く ----
@@ -199,7 +213,7 @@ function drawHand(lm, ok, arrow = null, depth = null, outline = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
-  if (state.segCanvas && $("seg-outline").checked) octx.drawImage(state.segCanvas, 0, 0, w, h);   // 実際の輪郭(分割モデル)
+  if (state.segCanvas) octx.drawImage(state.segCanvas, 0, 0, w, h);   // 実際の輪郭(分割モデル。ボタンを押した時の、1回分)
   octx.lineWidth = Math.max(2, w / 400);
   octx.strokeStyle = "rgba(255,255,255,0.85)";
   if (outline && outline.hull.length > 2) {   // 輪郭(21点の、外側を結んだ形)を、水色で
@@ -313,10 +327,8 @@ function loop() {
     state.frames = [];
   }
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
-  const segOn = $("seg-outline").checked;
-  if (segOn && !state.seg) ensureSegmenter();
-  if (segOn && lm) runSegment(lm, frame, now);
-  if (!lm || !segOn) { state.segCanvas = null; state.segStats = null; }
+  state.lastLm = lm;
+  state.lastFrame = frame;
   const outline = lm ? outlineShape(lm, frame) : null;
   drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), $("depth-color").checked ? depthRelative(world) : null, outline);   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
   renderChecks(r.checks);
@@ -346,7 +358,7 @@ function outlineLine(o) {
 // 分割(実際の輪郭)の数字: 幅/長さ、面積(手首〜中指の付け根の2乗に対する倍率)、かかった時間
 function segLine() {
   const s = state.segStats;
-  if (!$("seg-outline").checked || !s) return "";
+  if (!s) return "";
   return "\n実際の輪郭: 幅/長さ " + s.ratio.toFixed(2) + "  面積 " + s.areaNorm.toFixed(2) + "  (" + state.segMs + "ms)";
 }
 
@@ -416,6 +428,8 @@ $("shoot").addEventListener("click", () => capture("manual"));
 $("flip").addEventListener("click", () => { state.facingMode = state.facingMode === "user" ? "environment" : "user"; startCamera(); });
 $("save").addEventListener("click", savePhoto);
 $("again").addEventListener("click", again);
+$("seg-once").addEventListener("click", segmentOnce);
+$("seg-clear").addEventListener("click", clearSegment);
 
 // ---- 起動 ----
 if (!CAPTURE_ENABLED) $("shoot").hidden = true;   // 撮影が、オフの間は、「撮影」ボタンも、隠す
