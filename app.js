@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v17";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v18";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -16,6 +16,7 @@ const stage = $("stage");
 const params = new URLSearchParams(window.location.search);
 const SEQ_CAPTURE = params.get("capture") !== "0";
 const COOLDOWN_MS = 2000;   // 1つ撮った後、次を、撮り始めるまでの、間
+const SWITCH_FRAMES = 8;    // まだ1枚も撮っていない時に、逆の手が、これだけ続けて映ったら、その手から始める(コマ数。約0.3秒)
 
 const PATCH = 96;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)。場所は、数か所(patchCenters)
 const sample = document.createElement("canvas");
@@ -33,6 +34,8 @@ const state = {
   step: 0,                 // 4つのうち、次に撮る物の番号(全部、撮れたら -1)
   shots: STEPS.map(() => null),   // 撮れた写真: { blob, url, filename, w, h } | null
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
+  userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
+  otherCount: 0,           // 次に撮る手と、逆の手が、続けて映ったコマ数
   justMsg: "",
   capturing: false,
   mode: "palm",            // 判定に使う、いまのモード: "palm" | "back"(次に撮る物の、モード)
@@ -255,6 +258,22 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
+  // まだ1枚も撮っていない時に、逆の手が、先に映ったら、その手から始める(手のひらから)。 自分で選んだ時は、変えない
+  const seenHand = lm ? facingOf(lm, label, frame) : null;
+  const first = curStep();
+  if (seenHand && first && !state.userPicked && !state.shots.some(Boolean) && seenHand.hand !== first.hand) {
+    state.otherCount++;
+    if (state.otherCount >= SWITCH_FRAMES) {
+      state.otherCount = 0;
+      state.step = STEPS.findIndex((s) => s.hand === seenHand.hand && s.mode === "palm");
+      applyMode();
+      renderModeHelp();
+      renderSteps();
+      $("seq-note").textContent = handName(seenHand.hand) + "が、先に映ったので、" + handName(seenHand.hand) + "から始めます。";
+    }
+  } else {
+    state.otherCount = 0;
+  }
   const step = curStep();   // 次に撮る物(全部、撮れたら null)
   let guide = null;
   if (step) {   // 手の形のガイド: 次に撮る物(手の左右・手のひら / 甲)の形
@@ -278,7 +297,7 @@ function loop() {
     setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? (SEQ_CAPTURE ? r.guide : "そろいました(撮影は、オフです)") : r.guide, r.allOk);
   }
   if (state.frameCount % 2 === 0) {   // いま見えている手(左右の判定が、合っているかを、確かめるため)
-    if (lm) { const f = facingOf(lm, label, frame); $("seen").textContent = "いま見えている手: " + handName(f.hand) + "の" + (f.facing === "palm" ? "手のひら側" : "手の甲側"); }
+    if (seenHand) { const f = seenHand; $("seen").textContent = "いま見えている手: " + handName(f.hand) + "の" + (f.facing === "palm" ? "手のひら側" : "手の甲側"); }
     else $("seen").textContent = "いま見えている手: (なし)";
   }
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
@@ -335,6 +354,8 @@ function resetAll() {
   for (const s of state.shots) if (s) URL.revokeObjectURL(s.url);
   state.shots = STEPS.map(() => null);
   state.step = 0;
+  state.userPicked = false;
+  state.otherCount = 0;
   state.cooldownUntil = 0;
   applyMode();
   renderModeHelp();
@@ -378,8 +399,9 @@ $("steps").addEventListener("click", (e) => {
 });
 $("step-badges").addEventListener("click", (e) => {   // 映像の上の、まだ撮っていない物を、押すと、それを、次に撮る物にする
   const b = e.target.closest(".badge");
-  if (!b || !b.classList.contains("todo")) return;
+  if (!b || b.classList.contains("done")) return;   // 撮れた物は、押しても、何もしない(撮り直しは、右の列の「撮り直す」)
   state.step = Number(b.dataset.i);
+  state.userPicked = true;
   state.cooldownUntil = 0;
   applyMode();
   renderModeHelp();
