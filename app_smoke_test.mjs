@@ -138,7 +138,7 @@ try {
   const waitDone = (i, what) => waitFor(`document.querySelectorAll("#step-badges .badge")[${i}].classList.contains("done")`, what + "が、撮れる", 20000);
   const diag = async () => console.log("   hold=" + (await ev(`document.getElementById("hold").value`)) + " ガイド=" + (await guide()) + " checks=" + (await ev(`[...document.querySelectorAll("#checks li")].map((l) => l.className + ":" + l.textContent).join(" | ")`)));
   check("S0 先頭が『次(current)』。説明は『次は、「右手のひら」』。右の一覧は、まだ空(撮れた物だけが、並ぶ)", (await ev(`document.querySelectorAll("#steps li").length`)) === 0 && (await stepClass(0)) === "current" && /次は、「右手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
-  check("S0b 映像の左上に、4つ(右手のひら・右手の甲・左手のひら・左手の甲)が、出る。先頭が、『次』(current)", (await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.textContent.replace(/^[✓▶] /, "")).join(",")`)) === "右手のひら,右手の甲,左手のひら,左手の甲" && (await ev(`document.querySelector("#step-badges .badge").classList.contains("current")`)) && !(await ev(`document.getElementById("step-badges").hidden`)));
+  check("S0b 映像の上に、4つ(右手のひら・右手の甲・左手のひら・左手の甲)が、出る。先頭が、『次』(current)", (await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.textContent.replace(/^[✓▶] /, "")).join(",")`)) === "右手のひら,右手の甲,左手のひら,左手の甲" && (await ev(`document.querySelector("#step-badges .badge").classList.contains("current")`)) && !(await ev(`document.getElementById("step-badges").hidden`)));
   await setHand({ hand: "left", facing: "palm", scale: 0.8 });   // 右手の番に、左手
   await waitGuide("右手を、映してください(いまは、左手です)");
   await sleep(1500);
@@ -170,7 +170,7 @@ try {
     await ev(`window.__handNow = null; true`);
     await sleep(500);
     check("S9b 全部、撮れたら、枠は緑。ガイド(うすい形)は、出さない(手が無い画面で、ガイドの画素が、0)", (await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await guidePix()).n === 0, JSON.stringify(await guidePix()));
-    check("S9c 左上の4つ(2 × 2)が、全部、緑(done)。左の列 = 右手のひら・右手の甲、右の列 = 左手のひら・左手の甲", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b[0].left === b[1].left && b[2].left === b[3].left && b[2].left > b[0].left && b[1].top > b[0].top && b[3].top > b[2].top && b[0].top > st.top && b[0].left > st.left && b[0].left - st.left < 20; })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
+    check("S9c 映像の上の4つ(横一列)が、全部、緑(done)。左から、右手のひら・右手の甲・左手のひら・左手の甲。映像の、上にある", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b.every((r) => Math.abs(r.top - b[0].top) < 1) && b[0].left < b[1].left && b[1].left < b[2].left && b[2].left < b[3].left && b.every((r) => r.bottom <= st.top + 1); })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
     // 全部、保存: 共有が使えない端末は、4つのダウンロード。使える端末は、共有の画面に、4枚を、渡す
     await ev(`document.getElementById("save-all").click(); true`);
     await sleep(1800);

@@ -13,6 +13,7 @@
   <h1>手の撮影</h1>
   <p class="sub">手のひら・手の甲(右手・左手)を、順番に、ガイドに合わせて、撮ります。</p>
 
+  <div id="step-badges" role="group" aria-label="撮る順番(右手のひら、右手の甲、左手のひら、左手の甲)"></div>
   <p id="mode-help" class="sub"></p>
 
   <section id="camera-view">
@@ -20,7 +21,6 @@
       <div id="stage">
         <video id="video" autoplay muted playsinline></video>
         <canvas id="overlay"></canvas>
-        <div id="step-badges" aria-label="撮る順番(右手 左手 × 手のひら 手の甲)"></div>
         <div id="guide" role="status" aria-live="polite">準備しています…</div>
       </div>
     </div>
