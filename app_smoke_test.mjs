@@ -8,10 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { makeHand, makeWorld } from "./test_hands.mjs";
-import { handFrame, framePose } from "./guide.mjs";
+import { makeHand } from "./test_hands.mjs";
 
-const ROLL0 = framePose(handFrame(makeWorld({ hand: "right", facing: "palm" }))).roll;   // 人工の手の形の、元の roll(中指の付け根が、手首の真上から、少し、ずれている)
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HTTP_PORT = 8786, CDP_PORT = 9345;
@@ -78,7 +76,7 @@ try {
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push({ download: this.download, href: this.href.slice(0, 5) }); };
     window.__handNow = null;
     if (location.search.includes("fake=1")) {
-      window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], worldLandmarks: h.world ? [h.world] : [], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], worldLandmarks: [], handedness: [] }; } };
+      window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
     }` });
 
   const text = (sel) => ev(`document.querySelector(${JSON.stringify(sel)}).textContent`);
@@ -99,7 +97,7 @@ try {
   await load("?fake=1&capture=1");   // 撮影は、既定では、オフ。この試験は、撮影の流れも、確かめるので、オンにして開く
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備", 20000);
   const V = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
-  const setHand = (opts) => { const { world, ...o } = opts; const hnd = makeHand({ ...o, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label, world: world ? makeWorld({ hand: o.hand, facing: o.facing, ...world }) : null })}; true`); };
+  const setHand = (opts) => { const hnd = makeHand({ ...opts, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label })}; true`); };
   const guide = () => text("#guide");
   const waitGuide = (needle, what = needle) => waitFor(`document.getElementById("guide").textContent.includes(${JSON.stringify(needle)})`, "ガイド: " + what, 8000);
 
@@ -119,32 +117,10 @@ try {
   await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
 
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 20, tilt: -10 } });
-  await waitFor(`/"pan"/.test(document.getElementById("numbers-text").textContent)`, "角度の数字", 8000);
-  const nums = JSON.parse(await text("#numbers-text"));
-  check("B3b 3次元の点を渡すと、「確認用の数字」に、手の点すべてからの pan・tilt・roll・angle・rms と、3点の面の pan3・tilt3・angle3 が、出る(pan 20、tilt -10、roll 0)", Math.abs(nums.pan - 20) < 1.5 && Math.abs(nums.tilt + 10) < 1.5 && Math.abs(nums.roll - ROLL0) < 1.5 && Math.abs(nums.angle - 22.3) < 1.5 && Math.abs(Math.abs(nums.pan3) - 20) < 1.5 && nums.rms !== undefined, JSON.stringify(nums));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 0, tilt: 0, roll: 35 } });
-  await waitFor(`Math.abs(JSON.parse(document.getElementById("numbers-text").textContent).roll - ${35 + ROLL0}) < 2`, "roll の数字", 8000);
-  const nums2 = JSON.parse(await text("#numbers-text"));
-  check("B3c roll(画面の中で回す)35度を渡すと、roll が 35、pan と tilt は 0、angle も 0 のまま", Math.abs(nums2.roll - (35 + ROLL0)) < 1.5 && Math.abs(nums2.pan) < 1.5 && Math.abs(nums2.tilt) < 1.5 && nums2.angle < 1.5, JSON.stringify(nums2));
-
-  // 法線の矢印(緑): pan 30度で、手のひらの中心から、右へ伸びる。まっすぐなら、中心の丸だけ
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 30, tilt: 0, roll: 0 } });
-  await sleep(600);
-  const greenAt = (xFrac) => ev(`(() => { const c = document.getElementById("overlay"); const x = Math.round(c.width * ${xFrac}), y = Math.round(c.height * 0.5); const d = c.getContext("2d").getImageData(Math.max(0, x - 40), Math.max(0, y - 60), 80, 120).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 80 && d[i + 1] > 200 && d[i + 2] < 120 && d[i + 3] > 200) n++; return n; })()`);
-  const tipGreen = await greenAt(0.62);
-  check("B3d pan 30度のとき、手のひらの中心から、右へ、緑の矢印が、伸びる(中心の右側に、緑の画素)", tipGreen > 20, String(tipGreen));
-  await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, world: { pan: 0, tilt: 0, roll: 0 } });
-  await sleep(700);
-  check("B3e まっすぐ(0度)のときは、矢印は、伸びない(右側に、緑が、ほとんど無い)", (await greenAt(0.62)) < 5, String(await greenAt(0.62)));
-
-  await waitFor(`/pan\\s+[+-]\\s*\\d/.test(document.getElementById("pose-line").textContent)`, "向きの1行", 10000);
-  check("B3i 向きの数字が、1行(pose-line)で、いつも見える所に出る(pan / tilt / roll と、21点の pan / tilt)。右の列で、確認用の数字より、上にある", /pan\s+[+-]\s*\d+\.\d°\s+tilt\s+[+-]\s*\d+\.\d°\s+roll\s+[+-]\s*\d+\.\d°\s*比較\(pan,tilt\): 11点.*16点.*21点/s.test(await text("#pose-line")) && (await ev(`document.getElementById("pose-line").getBoundingClientRect().top < document.getElementById("numbers").getBoundingClientRect().top`)), await text("#pose-line"));
-
   // 手の形のガイド: 手のひらモードで、ガイド(うすい形)を出し、いまの手との、一致した面積(%)を出す
-  const pcts = async () => { const m = (await text("#pose-line")).match(/そのまま\s*(\d+)%\s+形だけ[^0-9]*(\d+)%/); return m ? [Number(m[1]), Number(m[2])] : null; };
+  const pcts = async () => { const m = (await text("#match-line")).match(/そのまま\s*(\d+)%\s+形だけ[^0-9]*(\d+)%/); return m ? [Number(m[1]), Number(m[2])] : null; };
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
-  await waitFor(`/ガイドとの一致\(面積\): そのまま/.test(document.getElementById("pose-line").textContent)`, "ガイドとの一致", 8000).catch(() => {});
+  await waitFor(`/ガイドとの一致\(面積\): そのまま/.test(document.getElementById("match-line").textContent)`, "ガイドとの一致", 8000).catch(() => {});
   const g1 = await pcts();
   check("G1 手のひらモード: 3行目に『ガイドとの一致(面積): そのまま ○% 形だけ ○%』が出る。ガイドと同じ位置の手は、高い(そのまま 60%以上、形だけ 80%以上)", !!g1 && g1[0] >= 60 && g1[1] >= 80, JSON.stringify(g1));
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
@@ -152,7 +128,7 @@ try {
   for (let k = 0; k < 60; k++) { g2 = await pcts(); if (g2 && g1 && g2[0] < g1[0] - 15) break; await sleep(100); }
   check("G2 手を右にずらすと、『そのまま』は下がり、『形だけ』は、あまり変わらない", !!g2 && !!g1 && g2[0] < g1[0] - 15 && g2[1] >= g1[1] - 10, JSON.stringify([g1, g2]));
   await ev(`window.__handNow = null; true`);
-  await waitFor(`!/ガイドとの一致\(面積\)/.test(document.getElementById("pose-line").textContent)`, "手を外した後", 8000).catch(() => {});
+  await waitFor(`!/ガイドとの一致\(面積\)/.test(document.getElementById("match-line").textContent)`, "手を外した後", 8000).catch(() => {});
   const guideAlpha = await ev(`(() => { const c = document.getElementById("overlay"); const d = c.getContext("2d").getImageData(Math.round(c.width * 0.5) - 3, Math.round(c.height * 0.6) - 3, 6, 6).data; let s = 0; for (let i = 3; i < d.length; i += 4) s += d[i]; return s / (d.length / 4); })()`);
   check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(手のひらの中ほどの絵に、色がある)", guideAlpha > 20, String(guideAlpha));
 
@@ -199,7 +175,7 @@ try {
   check("B12 「1本ずつ」に切り替わる(説明が、変わる)", /撮りたい指/.test(await text("#mode-help")), await text("#mode-help"));
   await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });
   await sleep(600);
-  check("G4 指先モードでは、ガイドとの一致は、出さない", !/ガイドとの一致/.test(await text("#pose-line")), await text("#pose-line"));
+  check("G4 指先モードでは、ガイドとの一致は、出さない", !/ガイドとの一致/.test(await text("#match-line")), await text("#match-line"));
   await ev(`document.querySelector('#modes button[data-mode="palm"]').click(); true`);
   check("B13 「手のひら」に戻すと、指先の選択は、隠れる", await ev(`document.getElementById("tip-sub").hidden`));
 
@@ -223,8 +199,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await sleep(300);
   let pl = await place();
-  const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { pose: r("pose-line"), num: r("numbers-text"), h: window.innerHeight }; })()`);
-  check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。向きの1行は、映像と、同じ高さの範囲に、ある。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.pose.top >= pl.stage.top - 1 && pl19.pose.bottom <= pl.stage.bottom && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], pose: pl19.pose, numTop: pl19.num.top, h: pl19.h }));
+  const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { pose: r("match-line"), num: r("numbers-text"), h: window.innerHeight }; })()`);
+  check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。ガイドの一致の1行は、映像と、同じ高さの範囲に、ある。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.pose.top >= pl.stage.top - 1 && pl19.pose.bottom <= pl.stage.bottom && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], pose: pl19.pose, numTop: pl19.num.top, h: pl19.h }));
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(300);
   pl = await place();

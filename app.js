@@ -1,7 +1,7 @@
 // app.js — 手の撮影アプリ: カメラ、手の検出、ガイドの表示、撮影、保存。
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, handFrame, framePose, smoothFrame, normalArrow, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
+import { T, MODES, evaluate, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY } from "./guide.mjs";
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -13,7 +13,6 @@ const stage = $("stage");
 //   アドレスの末尾に ?capture=1 を付けて開くと、オンに戻る。
 const CAPTURE_ENABLED = new URLSearchParams(window.location.search).get("capture") === "1";
 
-const SMOOTH_FRAMES = 5;   // 手の向きを、ならす、コマ数
 const PATCH = 96;   // くっきり度と、明るさを、調べる、四角の大きさ(映像の画素)。場所は、数か所(patchCenters)
 const sample = document.createElement("canvas");
 sample.width = PATCH;
@@ -33,7 +32,6 @@ const state = {
   stream: null,
   landmarker: null,
   history: [],             // 動きを見るための、点の記録
-  frames: [],              // 手の向き(軸)の、直近の記録(ゆれを、ならすため)
   hold: { since: null, progress: 0, ready: false },
   lastVideoTime: -1,
   frameCount: 0,
@@ -71,7 +69,6 @@ function setMode(mode) {
   state.mode = mode;
   state.hold = { since: null, progress: 0, ready: false };
   state.history = [];
-  state.frames = [];
   renderModeHelp();
   renderChecks([]);
 }
@@ -170,13 +167,13 @@ function drawGuide(guide, matched) {
 
 // ガイドとの一致した面積(%)
 function guideLine(m) {
-  if (!m || m.overlap == null) return "";
+  if (!m || m.overlap == null) return "ガイドとの一致(面積): (ガイドに、手を重ねると、数字が出ます)";
   const pc = (v) => (v == null ? "-" : String(Math.round(v * 100)).padStart(3, " ") + "%");
-  return "\nガイドとの一致(面積): そのまま " + pc(m.overlap) + "  形だけ(位置・向き・大きさを、そろえて) " + pc(m.shape);
+  return "ガイドとの一致(面積): そのまま " + pc(m.overlap) + "  形だけ(位置・向き・大きさを、そろえて) " + pc(m.shape);
 }
 
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok, arrow = null, guide = null, matched = false) {
+function drawHand(lm, ok, guide = null, matched = false) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (guide) drawGuide(guide, matched);
   if (!lm) return;
@@ -189,39 +186,6 @@ function drawHand(lm, ok, arrow = null, guide = null, matched = false) {
   octx.fillStyle = ok ? "#4cc38a" : "#f0b429";
   const r = Math.max(3, w / 200);
   for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
-  if (arrow) drawNormal(arrow, w);
-}
-
-// 手のひら(甲)の、向き(法線)を、緑の矢印で、描く。 まっすぐ、カメラに向いていると、短く(中心の、丸だけ)、傾くと、傾いた向きへ、伸びる
-const NORMAL_GREEN = "#00ff55";
-function drawNormal(a, w) {
-  octx.save();
-  octx.strokeStyle = NORMAL_GREEN;
-  octx.fillStyle = NORMAL_GREEN;
-  octx.lineWidth = Math.max(3, w / 220);
-  octx.lineCap = "round";
-  const dot = Math.max(5, w / 110);
-  octx.beginPath();
-  octx.arc(a.from.x, a.from.y, dot, 0, Math.PI * 2);   // 手のひらの中心
-  octx.fill();
-  if (a.length > dot * 1.5) {
-    octx.beginPath();
-    octx.moveTo(a.from.x, a.from.y);
-    octx.lineTo(a.to.x, a.to.y);
-    octx.stroke();
-    const ang = Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x), head = Math.max(10, w / 70);   // 矢じり
-    octx.beginPath();
-    octx.moveTo(a.to.x, a.to.y);
-    octx.lineTo(a.to.x - head * Math.cos(ang - 0.45), a.to.y - head * Math.sin(ang - 0.45));
-    octx.moveTo(a.to.x, a.to.y);
-    octx.lineTo(a.to.x - head * Math.cos(ang + 0.45), a.to.y - head * Math.sin(ang + 0.45));
-    octx.stroke();
-  } else {
-    octx.beginPath();
-    octx.arc(a.from.x, a.from.y, dot * 2.2, 0, Math.PI * 2);   // ほぼ、まっすぐ(手前向き)の時は、外側に、輪を描く
-    octx.stroke();
-  }
-  octx.restore();
 }
 
 // ---- 毎コマの処理 ----
@@ -236,7 +200,6 @@ function loop() {
   let result;
   try { result = state.landmarker.detectForVideo(video, performance.now()); } catch (e) { setStatus("手の検出で、エラーが出ました(" + e.message + ")", "model"); return; }
   const lm = result.landmarks && result.landmarks[0] ? result.landmarks[0] : null;
-  const world = result.worldLandmarks && result.worldLandmarks[0] ? result.worldLandmarks[0] : null;   // 3次元の位置(メートル)
   const label = result.handedness && result.handedness[0] && result.handedness[0][0] ? result.handedness[0][0].categoryName : "Left";
   const now = performance.now();
   const frame = { w: vw, h: vh };
@@ -257,18 +220,7 @@ function loop() {
   }
   const motion = lm ? motionScore(state.history, frame) : null;
 
-  // 手の向き(pan / tilt / roll): 3次元の点21個から、手の軸を作り、直近の数コマを、ならして、出す
-  let pose = null, smoothed = null;
-  const f3 = world ? handFrame(world) : null;
-  if (f3) {
-    state.frames.push(f3);
-    while (state.frames.length > SMOOTH_FRAMES) state.frames.shift();
-    smoothed = smoothFrame(state.frames);
-    pose = framePose(smoothed);
-  } else {
-    state.frames = [];
-  }
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, world, pose });
+  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp });
   if (r.numbers.hand) state.guideHand = r.numbers.hand;
   let guide = null;
   if (state.mode === "palm" || state.mode === "back") {   // 指先のモードでは、ガイドは、出さない
@@ -277,23 +229,15 @@ function loop() {
     guide = state.guide.g;
   }
   const gm = guide && lm ? guideMatch(lm, guide, frame) : null;
-  drawHand(lm, r.allOk, normalArrow(lm, smoothed, frame), guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));   // 奥行き(平均を 0)を、点の色で   // 法線(手のひら / 甲の向き)を、緑の矢印で
+  drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));
   renderChecks(r.checks);
   state.hold = holdProgress(state.hold, r.allOk, now);
   $("hold").value = state.hold.progress;
   const readyText = CAPTURE_ENABLED ? r.guide : "そろいました(撮影は、いまは、オフです)";
   setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? readyText : r.guide, r.allOk);
-  if (state.frameCount % 2 === 0) $("pose-line").textContent = poseLine(r.numbers) + guideLine(gm);   // 向きの数字を、1行で、いつも見える所に
+  if (state.frameCount % 2 === 0) $("match-line").textContent = guide ? guideLine(gm) : "";   // ガイドとの一致を、いつも見える所に
   if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
   if (state.hold.ready && CAPTURE_ENABLED) capture("auto");
-}
-
-// 向きの数字(pan / tilt / roll)を、文字にする。(8点の面) 11点・16点・21点の面も、比べるために、並べる
-const sgn = (v) => (v == null ? "  -  " : (v >= 0 ? "+" : "-") + Math.abs(v).toFixed(1).padStart(4, " "));
-function poseLine(n) {
-  if (n.pan === undefined) return "向き: (手が映ると、数字が出ます)";
-  const pair = (p, t) => "(" + sgn(p).trim() + "," + sgn(t).trim() + ")";
-  return "pan " + sgn(n.pan) + "°  tilt " + sgn(n.tilt) + "°  roll " + sgn(n.roll) + "°\n比較(pan,tilt): 11点 " + pair(n.pan11, n.tilt11) + " 16点 " + pair(n.pan16, n.tilt16) + " 21点 " + pair(n.panAll, n.tiltAll);
 }
 
 // ---- 撮影と保存 ----

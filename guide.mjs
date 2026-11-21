@@ -199,140 +199,6 @@ export function facingOf(lm, label, frame, rawFrame = RAW_FRAME) {
   return { facing: palm ? "palm" : "back", cross, hand: isRight ? "right" : "left" };
 }
 
-// 手のひらの面の、向き(カメラに対する、角度)。 3次元の手の点(worldLandmarks。メートル。x は右、y は下、z は奥)から、出す。
-//   面の法線 = (人差し指の付け根 - 手首) × (小指の付け根 - 手首)。 カメラの向き(z 軸)との、ずれを、2つの角度に分ける。
-//   pan: 左右のひねり(度)  tilt: 前後の倒れ(度)  angle: 合わせた、ずれ(度)。 0 = 手のひら(甲)が、カメラに、まっすぐ向いている。
-//   符号は、法線を、カメラ側(手前)に、向けて、決める。 点が、足りない・向きが、決まらない時は、null。
-//   注意: 奥行きの推定には、誤差がある(十数度、ずれることがある)。しきい値は、実機の数字を見て、決める。
-export function palmAngles(world) {
-  if (!world || world.length < 21) return null;
-  const w = world[LM.WRIST], i = world[LM.INDEX_MCP], p = world[LM.PINKY_MCP];
-  if (![w, i, p].every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
-  const v1 = { x: i.x - w.x, y: i.y - w.y, z: i.z - w.z }, v2 = { x: p.x - w.x, y: p.y - w.y, z: p.z - w.z };
-  let n = { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x };
-  const len = Math.hypot(n.x, n.y, n.z);
-  if (len < 1e-9) return null;
-  n = { x: n.x / len, y: n.y / len, z: n.z / len };
-  if (n.z > 0) n = { x: -n.x, y: -n.y, z: -n.z };   // 手前(カメラ側 = -z)に、向ける
-  const deg = (r) => (r * 180) / Math.PI;
-  return { pan: deg(Math.atan2(n.x, -n.z)), tilt: deg(Math.atan2(n.y, -n.z)), angle: deg(Math.acos(Math.min(1, -n.z))) };
-}
-
-// 3x3 の対称行列の、固有値と固有ベクトル(ヤコビ法)。 戻り値: { values: [3つ], vectors: [3つの、長さ 1 のベクトル(同じ順番)] }
-export function eigenSym3(m) {
-  const A = m.map((r) => r.slice());
-  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-  for (let sweep = 0; sweep < 60; sweep++) {
-    if (Math.abs(A[0][1]) + Math.abs(A[0][2]) + Math.abs(A[1][2]) < 1e-20) break;
-    for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
-      if (Math.abs(A[p][q]) < 1e-30) continue;
-      const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
-      const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
-      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
-      for (let k = 0; k < 3; k++) { const x = A[k][p], y = A[k][q]; A[k][p] = c * x - s * y; A[k][q] = s * x + c * y; }
-      for (let k = 0; k < 3; k++) { const x = A[p][k], y = A[q][k]; A[p][k] = c * x - s * y; A[q][k] = s * x + c * y; }
-      for (let k = 0; k < 3; k++) { const x = V[k][p], y = V[k][q]; V[k][p] = c * x - s * y; V[k][q] = s * x + c * y; }
-    }
-  }
-  return { values: [A[0][0], A[1][1], A[2][2]], vectors: [0, 1, 2].map((j) => ({ x: V[0][j], y: V[1][j], z: V[2][j] })) };
-}
-
-// ---- 手の向き(pan / tilt / roll)----
-// 小さな、ベクトルの部品
-const vAdd = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
-const vSub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
-const vDot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
-const vCross = (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
-const vScale = (a, k) => ({ x: a.x * k, y: a.y * k, z: a.z * k });
-const vNorm = (a) => { const l = Math.hypot(a.x, a.y, a.z); return l < 1e-12 ? null : vScale(a, 1 / l); };
-
-// 手の、座標軸(3方向)を、手の点21個(worldLandmarks。メートル)すべてから、作る。
-//   座標は、カメラ基準に、直す: X = 右、Y = 上、Z = 手前(見ている人の側)。 (MediaPipe は、x = 右、y = 下、z = 奥)
-//   ez(手のひら / 甲の、向き)= points(既定は、8点)に、いちばんよく合う面の、法線。 手前向き(+Z)に、そろえる。
-//   ey(指の、向き)= 手首から、中指の付け根(9。points に無ければ、points の中の、ほかの指の付け根の平均、それも無ければ 4本の平均)への向き。 面の中に、直す。
-//   ex(手の、幅の向き)= ey × ez(右手系)。
-//   戻り値: { ex, ey, ez, rms(あてはまりの悪さ。ミリメートル) } | null
-//   手が、カメラに、まっすぐ向いていて、指が、上向きなら、ex = X、ey = Y、ez = Z(= 0度)になる。左右・手のひら / 甲に、よらない。
-// 比べるための、点の選び方: PALM_POINTS = 手のひらの、かたい部分(手首、親指の付け根、4本の指の付け根)の6点。 ALL_POINTS = 21点すべて。
-//   実機で、指先の5点が、いつも、手前(赤)に、推定されて、21点の面が、前に倒れて見えた(MediaPipe の奥行き z は、指先が、手前に、偏る)。 そこで、指先を除いた 16点(POINTS16)、さらに、指先に近い関節も除いた 11点(POINTS11)が、基本。
-export const PALM_POINTS = [0, 1, 5, 9, 13, 17];
-export const ALL_POINTS = Array.from({ length: 21 }, (_, i) => i);
-// 指先の5点(親指・人差し指・中指・薬指・小指の先)を除いた、16点。 面のあてはめ・奥行きの色の、基本の点。(指先は、奥行きが、いつも、手前に偏るため)
-export const POINTS16 = ALL_POINTS.filter((i) => !TIPS.includes(i));
-// さらに、指先に近い関節(親指の指先の、1つ手前の関節と、4本の指の第1関節。3、7、11、15、19)を除いた、11点。 基本の点(面のあてはめ・奥行きの色)。
-//   11点 = 手首、親指の付け根(CMC、MCP)、4本の指の付け根(MCP)と、第2関節(PIP)。
-export const DIP_POINTS = [3, 7, 11, 15, 19];
-export const POINTS11 = POINTS16.filter((i) => !DIP_POINTS.includes(i));
-// さらに、小指の2点(付け根 17、第2関節 18)と、薬指の第2関節(14)を除いた、8点。 基本の点(面のあてはめ・奥行きの色・指の向き・矢印の始点)。
-//   8点 = 手首(0)、親指の付け根(1、2)、人差し指の付け根と第2関節(5、6)、中指の付け根と第2関節(9、10)、薬指の付け根(13)。
-export const POINTS8 = [0, 1, 2, 5, 6, 9, 10, 13];
-
-export function handFrame(world, points = POINTS8) {
-  if (!world || world.length < 21) return null;
-  if (!world.every((q) => q && Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z))) return null;
-  const Pall = world.map((q) => ({ x: q.x, y: -q.y, z: -q.z }));
-  const P = points.map((i) => Pall[i]);   // 面をあてはめる点
-  const n = P.length;
-  const m = vScale(P.reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / n);
-  const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  for (const q of P) {
-    const d = [q.x - m.x, q.y - m.y, q.z - m.z];
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] += (d[i] * d[j]) / n;
-  }
-  const { values, vectors } = eigenSym3(C);
-  if (values[0] + values[1] + values[2] < 1e-18) return null;
-  let k = 0;
-  for (let i = 1; i < 3; i++) if (values[i] < values[k]) k = i;
-  let ez = vNorm(vectors[k]);
-  if (!ez) return null;
-  if (ez.z < 0) ez = vScale(ez, -1);
-  // 指の向き: 手首から、中指の付け根(9)への向き(手の軸として、標準的)。 使う点に、9が無ければ、使う点の中の指の付け根の平均。それも無ければ、4本の平均
-  const mcpIdx = points.includes(9) ? [9] : [5, 13, 17].filter((i) => points.includes(i));
-  const useMcp = mcpIdx.length > 0 ? mcpIdx : [5, 9, 13, 17];
-  const mcp = vScale(useMcp.map((i) => Pall[i]).reduce((s, q) => vAdd(s, q), { x: 0, y: 0, z: 0 }), 1 / useMcp.length);
-  let d = vSub(mcp, Pall[0]);
-  d = vSub(d, vScale(ez, vDot(d, ez)));
-  const ey = vNorm(d);
-  if (!ey) return null;
-  const ex = vCross(ey, ez);
-  return { ex, ey, ez, rms: Math.sqrt(Math.max(0, values[k])) * 1000 };
-}
-
-// 手の軸から、3つの角度(度)を、出す。 回転の順番: pan(縦の軸)→ tilt(横の軸)→ roll(視線の軸)。 0 = 手のひらが、カメラに、まっすぐ向いて、指が、真上。
-//   pan: 手のひらの向きが、画面の右へ、ひねられると、プラス(カメラの映像の、右。前面カメラの鏡のような、表示では、逆に見える)
-//   tilt: 指先が、カメラに、近づく方に、倒れると、プラス
-//   roll: 手が、画面の中で、反時計回りに、回ると、プラス(カメラの映像で、見て)
-//   angle: 手のひらの面の、カメラの視線からの、ずれ(pan と tilt を、合わせた大きさ)
-export function framePose(f) {
-  if (!f) return null;
-  const deg = (r) => (r * 180) / Math.PI;
-  const clamp = (v) => Math.max(-1, Math.min(1, v));
-  return { pan: deg(Math.atan2(f.ez.x, f.ez.z)), tilt: deg(Math.asin(clamp(-f.ez.y))), roll: deg(Math.atan2(f.ex.y, f.ey.y)), angle: deg(Math.acos(clamp(f.ez.z))), rms: f.rms };
-}
-
-// 画面に重ねる、法線(手のひら / 甲の、向き)の矢印。 面の計算に使う点(既定は、8点)の中心から、法線の、画面の向きへ。
-//   手前(カメラ側)を、向いているほど、短い(点に近い)。 30度で、画面の短い辺 × k × 0.5 の長さ。
-//   lm: 画面の中の位置(0〜1)。 f: handFrame / smoothFrame の戻り値。 frame: { w, h }(画素)。 戻り値(画素): { from, to, length } | null
-export function normalArrow(lm, f, frame, k = 0.5, idx = POINTS8) {
-  if (!lm || !f) return null;
-  const cx = (idx.reduce((s, i) => s + lm[i].x, 0) / idx.length) * frame.w, cy = (idx.reduce((s, i) => s + lm[i].y, 0) / idx.length) * frame.h;
-  const L = Math.min(frame.w, frame.h) * k;
-  return { from: { x: cx, y: cy }, to: { x: cx + f.ez.x * L, y: cy - f.ez.y * L }, length: Math.hypot(f.ez.x, f.ez.y) * L };   // 画面は、下向きが +y。 ez は Y が上向き
-}
-
-// 直近の、何コマかの、手の軸を、平均して、ゆれを、ならす(奥行きの推定の、ゆれ対策)。 frames: handFrame の戻り値の、配列(古い順)
-export function smoothFrame(frames) {
-  const list = frames.filter(Boolean);
-  if (list.length === 0) return null;
-  const avg = (key) => vScale(list.reduce((s, f) => vAdd(s, f[key]), { x: 0, y: 0, z: 0 }), 1 / list.length);
-  const ez = vNorm(avg("ez"));
-  if (!ez) return null;
-  const e = avg("ey");
-  const ey = vNorm(vSub(e, vScale(ez, vDot(e, ez))));
-  if (!ey) return null;
-  return { ex: vCross(ey, ez), ey, ez, rms: list[list.length - 1].rms };
-}
-
 // 手のひらの、傾き: 幅(人差し指と小指の付け根) ÷ 高さ(手首と中指の付け根)。傾くと、小さくなる
 export function flatness(lm, frame) {
   const width = dist(px(lm[LM.INDEX_MCP], frame), px(lm[LM.PINKY_MCP], frame));
@@ -452,8 +318,7 @@ export function checkList(mode) {
 //   戻り値: { checks: [{ id, label, ok, msg }], allOk, guide, numbers }
 //   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
 export function evaluate(input) {
-  const { mode, landmarks: lm, label, frame, motion, brightness, sharp, world } = input;
-  const pose = input.pose ?? (world ? framePose(handFrame(world)) : null);   // 手の向き(pan / tilt / roll)。アプリは、直近の数コマを、ならした物を、渡す
+  const { mode, landmarks: lm, label, frame, motion, brightness, sharp } = input;
   const list = checkList(mode);
   const numbers = {};
   const msgs = {};   // id → 直す、ガイドの文(ok の時は、無い)
@@ -465,20 +330,6 @@ export function evaluate(input) {
   if (lm) {
     const face = facingOf(lm, label, frame);
     numbers.hand = face.hand; numbers.cross = Math.round(face.cross); numbers.facing = face.facing; numbers.label = label;
-    // 手の向き(確認用の数字だけ。まだ、判定には、使わない)
-    //   pan / tilt / roll / angle / rms: 8点から、作った、手の軸(直近の数コマを、ならした物)。 pan3 / tilt3 / angle3: 3点(手首と、人差し指・小指の付け根)だけの面(比べるため)
-    const three = palmAngles(world);
-    const r1 = (v) => Math.round(v * 10) / 10;
-    if (pose) { numbers.pan = r1(pose.pan); numbers.tilt = r1(pose.tilt); numbers.roll = r1(pose.roll); numbers.angle = r1(pose.angle); numbers.rms = r1(pose.rms); }
-    if (three) { numbers.pan3 = r1(three.pan); numbers.tilt3 = r1(three.tilt); numbers.angle3 = r1(three.angle); }
-    const allFrame = world ? handFrame(world, ALL_POINTS) : null;   // 21点すべてで、あてはめた面(比べるため。指先が、手前に偏るので、前に倒れて見える)
-    if (allFrame) { const pa = framePose(allFrame); numbers.panAll = r1(pa.pan); numbers.tiltAll = r1(pa.tilt); }
-    const f11 = world ? handFrame(world, POINTS11) : null;   // 11点(指先と第1関節を除いた面。比べるため)
-    if (f11) { const p11 = framePose(f11); numbers.pan11 = r1(p11.pan); numbers.tilt11 = r1(p11.tilt); }
-    const f16 = world ? handFrame(world, POINTS16) : null;   // 16点(指先だけを除いた面。比べるため)
-    if (f16) { const p16 = framePose(f16); numbers.pan16 = r1(p16.pan); numbers.tilt16 = r1(p16.tilt); }
-    const palmFrame = world ? handFrame(world, PALM_POINTS) : null;   // 手のひらの6点の面(比べるため)
-    if (palmFrame) { const pp = framePose(palmFrame); numbers.panPalm = r1(pp.pan); numbers.tiltPalm = r1(pp.tilt); }
     const wantPalm = mode === "palm";
     const facingOk = mode === "tip5" || mode === "tip1" ? face.facing === "back" : face.facing === (wantPalm ? "palm" : "back");
     ok.facing = facingOk;
