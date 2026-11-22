@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v24";
+export const VERSION = "v25";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -221,8 +221,8 @@ export function fingerShape(lm, frame) {
 // ---- 爪(指先)の四角 ----
 // 手の甲を撮る時に、5本の指先の、爪のあたりを、指の向きに合わせた、四角で示す(後で、切り出す範囲)。
 //   指の向き = 第1関節(dip)から指先(tip)へ。 四角は、その向きに沿って、第1関節から、指先の少し先まで。 幅は、指に直角。
-//   基準の長さ L0 = 第1関節〜指先。 縦 = L0 × lengthK、横 = L0 × widthK(あなたの手で試して、調整する)
-export const NAIL_BOX = { lengthK: 1.25, widthK: 1.0 };
+//   基準の長さ L0 = 第1関節〜指先。 縦 = L0 × lengthK、横 = L0 × widthK(あなたの手で試して、調整する)。 下の辺(第1関節の側)は、動かさず、上(指先の側)と、横を、広げる
+export const NAIL_BOX = { lengthK: 1.5625, widthK: 1.25 };   // 縦 = 1.25 × 1.25(上と横を、1.25倍にした。第1関節の側の辺は、そのまま)
 export const NAIL_FINGERS = [
   { name: "親指", dip: 3, tip: 4 }, { name: "人差し指", dip: 7, tip: 8 }, { name: "中指", dip: 11, tip: 12 },
   { name: "薬指", dip: 15, tip: 16 }, { name: "小指", dip: 19, tip: 20 },

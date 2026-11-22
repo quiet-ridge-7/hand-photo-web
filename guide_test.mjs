@@ -267,9 +267,10 @@ test("撮る手の確認: 指定しなければ、チェック項目は、増え
 });
 
 // ---- 爪(指先)の四角 ----
-test("爪の四角: 5本分。縦は、第1関節〜指先の 1.25 倍、横は、1.0 倍。四角は、長方形(直角)。指先の少し先まで", () => {
+test("爪の四角: 5本分。縦は、第1関節〜指先の 1.5625 倍、横は、1.25 倍(上と横を、1.25倍にした)。四角は、長方形(直角)。指先の少し先まで。下の辺は、第1関節", () => {
   const h = makeHand({ hand: "right", facing: "back" }), r = fingertipRects(h.lm, FRAME);
   assert.equal(r.length, 5);
+  assert.ok(near(NAIL_BOX.lengthK, 1.25 * 1.25, 1e-9) && near(NAIL_BOX.widthK, 1.25, 1e-9));
   assert.deepEqual(r.map((n) => n.name), ["親指", "人差し指", "中指", "薬指", "小指"]);
   const P = (i) => ({ x: h.lm[i].x * FRAME.w, y: h.lm[i].y * FRAME.h });
   const dips = [3, 7, 11, 15, 19], tips = [4, 8, 12, 16, 20];
@@ -282,7 +283,7 @@ test("爪の四角: 5本分。縦は、第1関節〜指先の 1.25 倍、横は�
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     assert.ok(near(mid.x, P(dips[k]).x, 1e-6) && near(mid.y, P(dips[k]).y, 1e-6));
     const along = ((P(tips[k]).x - a.x) * ad.x + (P(tips[k]).y - a.y) * ad.y) / (n.h * n.h);
-    assert.ok(near(along, 1 / NAIL_BOX.lengthK, 1e-6), "指先は、縦の 0.8 の所");
+    assert.ok(near(along, 1 / NAIL_BOX.lengthK, 1e-6), "指先は、縦の 0.64 の所");
   });
 });
 test("爪の四角: 指の向きに合わせて、回る(upAngle)。手を、画面の中で回すと、upAngle が、同じだけ、変わる。大きさは、変わらない", () => {
