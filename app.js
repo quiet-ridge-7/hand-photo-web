@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v18";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v19";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -76,6 +76,9 @@ function renderModeHelp() {
   const s = curStep();
   $("mode-help").textContent = s ? "次は、「" + s.label + "」。" + stepHelp(s) : "4つ、全部、撮れました。下の「全部、保存」で、保存します。";
   $("shoot").hidden = !SEQ_CAPTURE;   // 「撮影」ボタン(手動の撮影)
+  const now = $("now-label");   // 映像の左上: いま撮っている項目(例: 左手の甲)。 全部、撮れたら、「全部、撮れました」
+  now.textContent = s ? "撮影中: " + s.label : "全部、撮れました";
+  now.classList.toggle("done", !s);
 }
 
 // 4つの撮影の、一覧(未 / 次 / 済み)を、描く

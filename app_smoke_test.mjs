@@ -138,10 +138,12 @@ try {
   const waitDone = (i, what) => waitFor(`document.querySelectorAll("#step-badges .badge")[${i}].classList.contains("done")`, what + "が、撮れる", 20000);
   const diag = async () => console.log("   hold=" + (await ev(`document.getElementById("hold").value`)) + " ガイド=" + (await guide()) + " checks=" + (await ev(`[...document.querySelectorAll("#checks li")].map((l) => l.className + ":" + l.textContent).join(" | ")`)));
   check("S0 先頭が『次(current)』。説明は『次は、「左手のひら」』。右の一覧は、まだ空(撮れた物だけが、並ぶ)", (await ev(`document.querySelectorAll("#steps li").length`)) === 0 && (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+  check("S0a 映像の左上に、いま撮っている項目が、大きく出る(『撮影中: 左手のひら』)。映像の枠の、左上にある", /^撮影中: 左手のひら$/.test(await text("#now-label")) && (await ev(`(() => { const n = document.getElementById("now-label").getBoundingClientRect(), st = document.getElementById("stage").getBoundingClientRect(); return n.left - st.left < 20 && n.top - st.top < 20 && n.width > 80; })()`)), await text("#now-label"));
   check("S0b 映像の上に、4つ(左手のひら・左手の甲・右手のひら・右手の甲)が、出る。先頭が、『次』(current)", (await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.textContent.replace(/^[✓▶] /, "")).join(",")`)) === "左手のひら,左手の甲,右手のひら,右手の甲" && (await ev(`document.querySelector("#step-badges .badge").classList.contains("current")`)) && !(await ev(`document.getElementById("step-badges").hidden`)));
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });   // 左手の番に、右手(まだ1枚も撮っていない)
   await waitFor(`document.querySelectorAll("#step-badges .badge")[2].classList.contains("current")`, "右手から始める", 8000).catch(() => {});
   check("S1 まだ1枚も撮っていない時に、逆の手(右手)が、先に映ったら、右手から始める(右手のひらが『次』。『右手が、先に映ったので、右手から始めます』)", (await stepClass(2)) === "current" && (await stepClass(0)) === "todo" && /次は、「右手のひら」/.test(await text("#mode-help")) && /右手が、先に映ったので、右手から始めます/.test(await text("#seq-note")), await text("#seq-note"));
+  check("S1a 右手から始まった時は、左上の表示も、『撮影中: 右手のひら』", /^撮影中: 右手のひら$/.test(await text("#now-label")), await text("#now-label"));
   check("S1b 『いま見えている手』に、『右手の手のひら側』が、出る", /右手の手のひら側/.test(await text("#seen")), await text("#seen"));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });   // また、左手が映ったら、左手から
   await waitFor(`document.querySelectorAll("#step-badges .badge")[0].classList.contains("current")`, "左手から始める", 8000).catch(() => {});
@@ -152,6 +154,7 @@ try {
   check("S2 左手のひらを、約1秒、保つと、自動で撮れて、項目が、緑(done)になる", got);
   if (got) {
     check("S3 撮れた項目に、写真(blob)の小さな絵と、『保存』『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 2 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
+    check("S3b 撮れて、次の項目に移ると、左上の表示も、変わる(『撮影中: 左手の甲』)", /^撮影中: 左手の甲$/.test(await text("#now-label")), await text("#now-label"));
     check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『全部、保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "全部、保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
     check("S5 次は左手の甲なので、手のひらの手では、案内が『手の甲を、カメラに、向けてください』(チェックの項目名は、『手の甲側』)", await (async () => { await waitGuide("手の甲を、カメラに、向けてください"); return (await ev(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`)); })());
     await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });   // 1枚撮った後は、逆の手が映っても、始める手は、変えない
@@ -175,6 +178,7 @@ try {
     check("S9 右手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『全部、保存(4枚)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(4枚)", await guide());
     await ev(`window.__handNow = null; true`);
     await sleep(500);
+    check("S9a 全部、撮れたら、左上の表示は、『全部、撮れました』(緑)", (await text("#now-label")) === "全部、撮れました" && (await ev(`document.getElementById("now-label").classList.contains("done")`)), await text("#now-label"));
     check("S9b 全部、撮れたら、枠は緑。ガイド(うすい形)は、出さない(手が無い画面で、ガイドの画素が、0)", (await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await guidePix()).n === 0, JSON.stringify(await guidePix()));
     check("S9c 映像の上の4つ(横一列)が、全部、緑(done)。左から、左手のひら・左手の甲・右手のひら・右手の甲。映像の、上にある", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b.every((r) => Math.abs(r.top - b[0].top) < 1) && b[0].left < b[1].left && b[1].left < b[2].left && b[2].left < b[3].left && b.every((r) => r.bottom <= st.top + 1); })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
     // 全部、保存: 共有が使えない端末は、4つのダウンロード。使える端末は、共有の画面に、4枚を、渡す
