@@ -192,6 +192,19 @@ try {
     await setHand({ hand: "left", facing: "back", scale: 0.8 });
     let g2 = true; try { await waitDone(1, "左手の甲"); } catch { g2 = false; await diag(); }
     check("S7 左手の甲が、撮れて、緑になる。次は『右手のひら』", g2 && (await stepClass(2)) === "current" && /次は、「右手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+    // 爪(指先)の写真: 手の甲だけ。5枚。大きさは、四角の大きさ(画素)。 押すと、拡大
+    const nailRects = fingertipRects(makeHand({ hand: "left", facing: "back", scale: 0.8, frame: V }).lm, V);
+    const expectSizes = nailRects.map((r) => [Math.max(8, Math.round(r.w)), Math.max(8, Math.round(r.h))]);
+    await waitFor(`document.querySelectorAll('#steps li[data-i="1"] img.nail-thumb').length === 5`, "爪の写真(5枚)", 8000).catch(() => {});
+    await sleep(300);
+    const nailInfo = await ev(`[...document.querySelectorAll('#steps li[data-i="1"] img.nail-thumb')].map((e) => [e.naturalWidth, e.naturalHeight, e.src.slice(0, 5)])`);
+    check("S7b 手の甲を撮ると、爪(指先)の写真が、5枚、切り出される(blob)。大きさは、四角の大きさ(画素)と、同じ。手のひらには、無い", nailInfo.length === 5 && nailInfo.every((n, k) => n[2] === "blob:" && Math.abs(n[0] - expectSizes[k][0]) <= 1 && Math.abs(n[1] - expectSizes[k][1]) <= 1) && (await ev(`document.querySelectorAll('#steps li[data-i="0"] img.nail-thumb').length`)) === 0 && /爪\(指先\)の写真を、5枚、切り出しました/.test(await text("#seq-note")), JSON.stringify([nailInfo, expectSizes]));
+    await ev(`document.querySelector('#steps li[data-i="1"] img.nail-thumb').click(); true`);
+    check("S7c 爪の写真(小さい絵)を押すと、拡大して、表示される(左手の甲 — 親指。1 / 5。押した写真と、同じ絵)", !(await ev(`document.getElementById("lightbox").hidden`)) && /左手の甲 — 親指\(1 \/ 5。/.test(await text("#lightbox-cap")) && (await ev(`document.getElementById("lightbox-img").src === document.querySelector('#steps li[data-i="1"] img.nail-thumb').src`)), await text("#lightbox-cap"));
+    await ev(`document.querySelector('#lightbox button[data-lb="next"]').click(); true`);
+    check("S7d 「次へ」で、人差し指に、替わる(2 / 5)。拡大の画面は、閉じない", !(await ev(`document.getElementById("lightbox").hidden`)) && /左手の甲 — 人差し指\(2 \/ 5。/.test(await text("#lightbox-cap")), await text("#lightbox-cap"));
+    await ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);
+    check("S7e Esc で、拡大の画面が、閉じる。もう一度、開いて、どこかを押すと、閉じる", (await ev(`document.getElementById("lightbox").hidden`)) && await (async () => { await ev(`document.querySelector('#steps li[data-i="1"] img.nail-thumb').click(); true`); const opened = !(await ev(`document.getElementById("lightbox").hidden`)); await ev(`document.getElementById("lightbox-cap").click(); true`); return opened && (await ev(`document.getElementById("lightbox").hidden`)); })());
     await setHand({ hand: "right", facing: "palm", scale: 0.8 });
     let g3 = true; try { await waitDone(2, "右手のひら"); } catch { g3 = false; await diag(); }
     check("S8 右手のひらが、撮れて、緑になる。次は『右手の甲』", g3 && (await stepClass(3)) === "current" && /次は、「右手の甲」/.test(await text("#mode-help")), await text("#mode-help"));

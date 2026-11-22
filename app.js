@@ -2,9 +2,9 @@
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 //   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v25";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v26";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -33,6 +33,8 @@ const CONNECTIONS = [
 const state = {
   step: 0,                 // 4つのうち、次に撮る物の番号(全部、撮れたら -1)
   shots: STEPS.map(() => null),   // 撮れた写真: { blob, url, filename, w, h } | null
+  lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
+  lastFrame: null,
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
   otherCount: 0,           // 次に撮る手と、逆の手が、続けて映ったコマ数
@@ -113,6 +115,21 @@ function renderSteps() {
     const retake = document.createElement("button");
     retake.type = "button"; retake.dataset.act = "retake"; retake.dataset.i = String(i); retake.textContent = "撮り直す";
     li.append(mark, name, img, save, retake);
+    if (shot.nails && shot.nails.length) {   // 手の甲: 爪(指先)の、切り出した写真(小さく)。 押すと、拡大
+      const row = document.createElement("div");
+      row.className = "nails";
+      shot.nails.forEach((n, k) => {
+        const im = document.createElement("img");
+        im.className = "nail-thumb";
+        im.src = n.url;
+        im.alt = s.label + " " + n.name + "の爪";
+        im.title = n.name + "(押すと、拡大)";
+        im.dataset.i = String(i);
+        im.dataset.k = String(k);
+        row.append(im);
+      });
+      li.append(row);
+    }
     return li;
   }).filter(Boolean));
   const n = state.shots.filter(Boolean).length;
@@ -273,6 +290,8 @@ function loop() {
     state.history = [];
   }
   const motion = lm ? motionScore(state.history, frame) : null;
+  state.lastLm = lm;   // 撮る時(爪の切り出し)に、使う
+  state.lastFrame = frame;
 
   // まだ1枚も撮っていない時に、逆の手が、先に映ったら、その手から始める(手のひらから)。 自分で選んだ時は、変えない
   const seenHand = lm ? facingOf(lm, label, frame) : null;
@@ -330,19 +349,49 @@ const canvasBlob = async () => {
   c.height = h;
   c.getContext("2d").drawImage(video, 0, 0, w, h);   // 鏡に映さず、カメラの、そのままの向きで、保存する
   const blob = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.92));
-  return blob ? { blob, w, h } : null;
+  return blob ? { blob, w, h, canvas: c } : null;
 };
+
+// 手の甲の写真から、5本の爪(指先)の四角を、切り出す。 指の向きが、真上になるように、回して、切り出す(拡大はしない)
+async function cropNails(canvas, lm, frame) {
+  const rects = lm ? fingertipRects(lm, frame) : null;
+  if (!rects) return [];
+  const out = [];
+  for (const r of rects) {
+    const m = nailCropMatrix(r);
+    const c = document.createElement("canvas");
+    c.width = m.W;
+    c.height = m.H;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, m.W, m.H);
+    ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+    ctx.drawImage(canvas, 0, 0);
+    const blob = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.95));
+    if (blob) out.push({ name: r.name, blob, url: URL.createObjectURL(blob), w: m.W, h: m.H });
+  }
+  return out;
+}
+
+// 1枚の写真(と、爪の写真)の、メモリを、解放する
+function freeShot(s) {
+  if (!s) return;
+  URL.revokeObjectURL(s.url);
+  for (const n of s.nails || []) URL.revokeObjectURL(n.url);
+}
 
 async function captureStep(how) {
   if (state.capturing || state.step < 0) return;
   const i = state.step, step = STEPS[i];
   state.capturing = true;
+  const lmAtShot = state.lastLm, frameAtShot = state.lastFrame;   // 撮った瞬間の、手の点
   const shot = await canvasBlob();
+  const nails = shot && step.mode === "back" ? await cropNails(shot.canvas, lmAtShot, frameAtShot) : [];   // 手の甲だけ、爪を切り出す
   state.capturing = false;
   if (!shot) { setStatus("写真を、作れませんでした(映像が、まだ、準備できていません)"); return; }
-  if (state.step !== i) return;   // 撮っている間に、次の物に、切り替わった
-  if (state.shots[i]) URL.revokeObjectURL(state.shots[i].url);
-  state.shots[i] = { blob: shot.blob, url: URL.createObjectURL(shot.blob), filename: stepFileName(step, new Date()), w: shot.w, h: shot.h };
+  if (state.step !== i) { for (const n of nails) URL.revokeObjectURL(n.url); return; }   // 撮っている間に、次の物に、切り替わった
+  freeShot(state.shots[i]);
+  state.shots[i] = { blob: shot.blob, url: URL.createObjectURL(shot.blob), filename: stepFileName(step, new Date()), w: shot.w, h: shot.h, nails };
   state.step = nextStep(state.shots.map(Boolean), i);
   const next = curStep();
   state.justMsg = "撮れました: " + step.label + (next ? "。次は、" + next.label + "です" : "。4つ、全部、撮れました");
@@ -350,12 +399,12 @@ async function captureStep(how) {
   applyMode();
   renderModeHelp();
   renderSteps();
-  $("seq-note").textContent = step.label + "を、撮りました(" + shot.w + " × " + shot.h + ")。写真は、まだ、保存していません。";
+  $("seq-note").textContent = step.label + "を、撮りました(" + shot.w + " × " + shot.h + ")。" + (nails.length ? "爪(指先)の写真を、" + nails.length + "枚、切り出しました。" : "") + "写真は、まだ、保存していません。";
 }
 
 function retake(i) {
   if (!state.shots[i]) return;
-  URL.revokeObjectURL(state.shots[i].url);
+  freeShot(state.shots[i]);
   state.shots[i] = null;
   state.step = i;
   state.cooldownUntil = 0;
@@ -368,7 +417,7 @@ function retake(i) {
 function resetAll() {
   if (!state.shots.some(Boolean)) return;
   if (!window.confirm("撮った写真を、全部、消して、最初から撮り直します。(保存していない写真は、戻せません)よろしいですか?")) return;
-  for (const s of state.shots) if (s) URL.revokeObjectURL(s.url);
+  for (const s of state.shots) freeShot(s);
   state.shots = STEPS.map(() => null);
   state.step = 0;
   state.userPicked = false;
@@ -378,6 +427,29 @@ function resetAll() {
   renderModeHelp();
   renderSteps();
   $("seq-note").textContent = "最初から、撮り直します。";
+}
+
+// 爪の写真を、拡大して、見る(どこかを押すと、閉じる。Esc でも、閉じる。左右の矢印キーと、「前へ / 次へ」で、5本を、順に)
+const lightbox = { i: -1, k: 0 };
+function openLightbox(i, k) {
+  const s = state.shots[i];
+  if (!s || !s.nails || !s.nails[k]) return;
+  const n = s.nails[k];
+  lightbox.i = i;
+  lightbox.k = k;
+  $("lightbox-img").src = n.url;
+  $("lightbox-cap").textContent = STEPS[i].label + " — " + n.name + "(" + (k + 1) + " / " + s.nails.length + "。" + n.w + " × " + n.h + " 画素)";
+  $("lightbox").hidden = false;
+}
+function closeLightbox() {
+  $("lightbox").hidden = true;
+  $("lightbox-img").removeAttribute("src");
+  lightbox.i = -1;
+}
+function stepLightbox(d) {
+  const s = lightbox.i >= 0 ? state.shots[lightbox.i] : null;
+  if (!s || !s.nails || s.nails.length === 0) return;
+  openLightbox(lightbox.i, (lightbox.k + d + s.nails.length) % s.nails.length);
 }
 
 // 保存: iPhone など → 共有の画面(「画像を保存」)。 PC など → ダウンロード。 indexes: 保存する、番号
@@ -408,6 +480,8 @@ async function saveShots(indexes) {
 
 // ---- 操作 ----
 $("steps").addEventListener("click", (e) => {
+  const th = e.target.closest("img.nail-thumb");
+  if (th) { openLightbox(Number(th.dataset.i), Number(th.dataset.k)); return; }
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const i = Number(btn.dataset.i);
@@ -423,6 +497,17 @@ $("step-badges").addEventListener("click", (e) => {   // 映像の上の、ま�
   applyMode();
   renderModeHelp();
   renderSteps();
+});
+$("lightbox").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-lb]");
+  if (b) { stepLightbox(b.dataset.lb === "next" ? 1 : -1); return; }
+  closeLightbox();
+});
+document.addEventListener("keydown", (e) => {
+  if ($("lightbox").hidden) return;
+  if (e.key === "Escape") closeLightbox();
+  else if (e.key === "ArrowRight") stepLightbox(1);
+  else if (e.key === "ArrowLeft") stepLightbox(-1);
 });
 $("save-all").addEventListener("click", () => saveShots(STEPS.map((_, i) => i)));
 $("reset-all").addEventListener("click", resetAll);

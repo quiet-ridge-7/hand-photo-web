@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -301,6 +301,25 @@ test("爪の四角: 指の向きに合わせて、回る(upAngle)。手を、画
   assert.ok(a[1].upAngle < a[2].upAngle && a[2].upAngle < a[3].upAngle && a[3].upAngle < a[4].upAngle, a.map((n) => Math.round(n.upAngle)).join());
   assert.equal(fingertipRects(null, FRAME), null);
   assert.equal(fingertipRects(h.lm.slice(0, 10), FRAME), null);
+});
+
+test("爪の切り出し: 変換の行列で、四角の4つの角が、切り出した写真の4つの角になる。指先の側が、上。指の向きが、どれだけ傾いていても、同じ", () => {
+  const apply = (m, p) => ({ x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f });
+  const h = makeHand({ hand: "right", facing: "back" });
+  const rot = (lm, deg) => { const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180); return lm.map((q) => { const x = (q.x - 0.5) * FRAME.w, y = (q.y - 0.5) * FRAME.h; return { x: 0.5 + (c * x - s * y) / FRAME.w, y: 0.5 + (s * x + c * y) / FRAME.h, z: 0 }; }); };
+  for (const deg of [0, 25, 90, 160, -70]) {
+    const rects = fingertipRects(rot(h.lm, deg), FRAME);
+    rects.forEach((r) => {
+      const m = nailCropMatrix(r), [c0, c1, c2, c3] = r.corners.map((p) => apply(m, p));
+      const tol = 1.0;   // 大きさは、画素に、丸める
+      assert.ok(near(c0.x, 0, tol) && near(c0.y, m.H, tol) && near(c1.x, m.W, tol) && near(c1.y, m.H, tol) && near(c2.x, m.W, tol) && near(c2.y, 0, tol) && near(c3.x, 0, tol) && near(c3.y, 0, tol), r.name + " " + deg + " " + JSON.stringify([c0, c1, c2, c3]));
+      const mid = apply(m, r.center);
+      assert.ok(near(mid.x, m.W / 2, 1e-6) && near(mid.y, m.H / 2, 1e-6));
+      const tip = apply(m, { x: r.center.x + r.u.x * r.h / 2, y: r.center.y + r.u.y * r.h / 2 });   // 指の向きの、先
+      assert.ok(near(tip.x, m.W / 2, 1e-6) && tip.y <= 0.6 && tip.y < mid.y, "指先の側が、上(丸めの差は、半画素まで)");
+    });
+  }
+  assert.ok(nailCropMatrix({ w: 1, h: 1, u: { x: 0, y: -1 }, v: { x: 1, y: 0 }, center: { x: 5, y: 5 } }).W >= 8, "小さすぎる四角は、8画素に");
 });
 
 // ---- 続ける時間 ----

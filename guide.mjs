@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v25";
+export const VERSION = "v26";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -227,7 +227,7 @@ export const NAIL_FINGERS = [
   { name: "親指", dip: 3, tip: 4 }, { name: "人差し指", dip: 7, tip: 8 }, { name: "中指", dip: 11, tip: 12 },
   { name: "薬指", dip: 15, tip: 16 }, { name: "小指", dip: 19, tip: 20 },
 ];
-// 戻り値: 5本分の { name, corners(画素の4点。第1関節側の左・右、指先側の右・左 の順), center, w, h, upAngle(指が、真上から、右へ傾いた角度。度) } | null
+// 戻り値: 5本分の { name, corners(画素の4点。第1関節側の左・右、指先側の右・左 の順), center, w, h, u(指の向き), v(指に直角), upAngle(指が、真上から、右へ傾いた角度。度) } | null
 export function fingertipRects(lm, frame, box = NAIL_BOX) {
   if (!lm || lm.length < 21) return null;
   const out = [];
@@ -242,11 +242,19 @@ export function fingertipRects(lm, frame, box = NAIL_BOX) {
     out.push({
       name: f.name,
       corners: [at(0, -wid / 2), at(0, wid / 2), at(len, wid / 2), at(len, -wid / 2)],
-      center: at(len / 2, 0), w: wid, h: len,
+      center: at(len / 2, 0), w: wid, h: len, u, v,
       upAngle: (Math.atan2(u.x, -u.y) * 180) / Math.PI,
     });
   }
   return out;
+}
+
+// 切り出し用の、変換の行列。 元の写真の点 p を、切り出した写真の点 (X, Y) にする(指先が、真上になる)。
+//   X = (p - 中心)・v + W/2、 Y = H/2 - (p - 中心)・u。 canvas の setTransform(a, b, c, d, e, f) に、そのまま、渡せる。 W × H = 四角の、画素の大きさ(拡大しない。丸めた値)
+export function nailCropMatrix(rect) {
+  const W = Math.max(8, Math.round(rect.w)), H = Math.max(8, Math.round(rect.h));
+  const { u, v, center: c } = rect;
+  return { a: v.x, b: -u.x, c: v.y, d: -u.y, e: W / 2 - (v.x * c.x + v.y * c.y), f: H / 2 + (u.x * c.x + u.y * c.y), W, H };
 }
 
 // 動き: 直近の、時間の幅の中で、いまの点と、いちばん違う点までの、ずれ(画面の対角に対する割合)
