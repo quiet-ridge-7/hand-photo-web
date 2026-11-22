@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v26";
+export const VERSION = "v27";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -222,10 +222,10 @@ export function fingerShape(lm, frame) {
 // 手の甲を撮る時に、5本の指先の、爪のあたりを、指の向きに合わせた、四角で示す(後で、切り出す範囲)。
 //   指の向き = 第1関節(dip)から指先(tip)へ。 四角は、その向きに沿って、第1関節から、指先の少し先まで。 幅は、指に直角。
 //   基準の長さ L0 = 第1関節〜指先。 縦 = L0 × lengthK、横 = L0 × widthK(あなたの手で試して、調整する)。 下の辺(第1関節の側)は、動かさず、上(指先の側)と、横を、広げる
-export const NAIL_BOX = { lengthK: 1.5625, widthK: 1.25 };   // 縦 = 1.25 × 1.25(上と横を、1.25倍にした。第1関節の側の辺は、そのまま)
+export const NAIL_BOX = { lengthK: 1.875, widthK: 1.25 };   // 縦 = 1.25 × 1.25 × 1.2(上を、さらに 1.2倍にした)。 横 = 1.25。 第1関節の側の辺は、そのまま
 export const NAIL_FINGERS = [
-  { name: "親指", dip: 3, tip: 4 }, { name: "人差し指", dip: 7, tip: 8 }, { name: "中指", dip: 11, tip: 12 },
-  { name: "薬指", dip: 15, tip: 16 }, { name: "小指", dip: 19, tip: 20 },
+  { name: "親指", key: "thumb", dip: 3, tip: 4 }, { name: "人差し指", key: "index", dip: 7, tip: 8 }, { name: "中指", key: "middle", dip: 11, tip: 12 },
+  { name: "薬指", key: "ring", dip: 15, tip: 16 }, { name: "小指", key: "pinky", dip: 19, tip: 20 },
 ];
 // 戻り値: 5本分の { name, corners(画素の4点。第1関節側の左・右、指先側の右・左 の順), center, w, h, u(指の向き), v(指に直角), upAngle(指が、真上から、右へ傾いた角度。度) } | null
 export function fingertipRects(lm, frame, box = NAIL_BOX) {
@@ -240,7 +240,7 @@ export function fingertipRects(lm, frame, box = NAIL_BOX) {
     const len = L0 * box.lengthK, wid = L0 * box.widthK;
     const at = (s, t) => ({ x: a.x + u.x * s + v.x * t, y: a.y + u.y * s + v.y * t });
     out.push({
-      name: f.name,
+      name: f.name, key: f.key,
       corners: [at(0, -wid / 2), at(0, wid / 2), at(len, wid / 2), at(len, -wid / 2)],
       center: at(len / 2, 0), w: wid, h: len, u, v,
       upAngle: (Math.atan2(u.x, -u.y) * 180) / Math.PI,
@@ -356,6 +356,11 @@ export function nextStep(doneFlags, current = -1) {
 export function stepHelp(step) {
   const hand = step.hand === "right" ? "右手" : "左手";
   return step.mode === "palm" ? hand + "の、手のひら側を、カメラに向けて、指を開きます。" : hand + "の、手の甲側を、カメラに向けて、指を開きます。";
+}
+
+// 爪(指先)の写真の、ファイル名。 例: hand_left_back_nail_index_20261121_150000.jpg(手の甲の写真と、同じ日付・時刻)
+export function nailFileName(step, fingerKey, date) {
+  return stepFileName(step, date).replace(".jpg", "").replace(step.hand + "_" + step.mode + "_", step.hand + "_" + step.mode + "_nail_" + fingerKey + "_") + ".jpg";
 }
 
 // 保存する時の、ファイル名。 例: hand_right_palm_20261121_150000.jpg

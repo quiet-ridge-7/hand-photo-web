@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -267,10 +267,10 @@ test("撮る手の確認: 指定しなければ、チェック項目は、増え
 });
 
 // ---- 爪(指先)の四角 ----
-test("爪の四角: 5本分。縦は、第1関節〜指先の 1.5625 倍、横は、1.25 倍(上と横を、1.25倍にした)。四角は、長方形(直角)。指先の少し先まで。下の辺は、第1関節", () => {
+test("爪の四角: 5本分。縦は、第1関節〜指先の 1.875 倍、横は、1.25 倍(上と横を 1.25倍、さらに、上を 1.2倍にした)。四角は、長方形(直角)。指先の先まで。下の辺は、第1関節", () => {
   const h = makeHand({ hand: "right", facing: "back" }), r = fingertipRects(h.lm, FRAME);
   assert.equal(r.length, 5);
-  assert.ok(near(NAIL_BOX.lengthK, 1.25 * 1.25, 1e-9) && near(NAIL_BOX.widthK, 1.25, 1e-9));
+  assert.ok(near(NAIL_BOX.lengthK, 1.25 * 1.25 * 1.2, 1e-9) && near(NAIL_BOX.widthK, 1.25, 1e-9));
   assert.deepEqual(r.map((n) => n.name), ["親指", "人差し指", "中指", "薬指", "小指"]);
   const P = (i) => ({ x: h.lm[i].x * FRAME.w, y: h.lm[i].y * FRAME.h });
   const dips = [3, 7, 11, 15, 19], tips = [4, 8, 12, 16, 20];
@@ -283,7 +283,7 @@ test("爪の四角: 5本分。縦は、第1関節〜指先の 1.5625 倍、横�
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     assert.ok(near(mid.x, P(dips[k]).x, 1e-6) && near(mid.y, P(dips[k]).y, 1e-6));
     const along = ((P(tips[k]).x - a.x) * ad.x + (P(tips[k]).y - a.y) * ad.y) / (n.h * n.h);
-    assert.ok(near(along, 1 / NAIL_BOX.lengthK, 1e-6), "指先は、縦の 0.64 の所");
+    assert.ok(near(along, 1 / NAIL_BOX.lengthK, 1e-6), "指先は、縦の 0.533 の所");
   });
 });
 test("爪の四角: 指の向きに合わせて、回る(upAngle)。手を、画面の中で回すと、upAngle が、同じだけ、変わる。大きさは、変わらない", () => {
@@ -320,6 +320,15 @@ test("爪の切り出し: 変換の行列で、四角の4つの角が、切り�
     });
   }
   assert.ok(nailCropMatrix({ w: 1, h: 1, u: { x: 0, y: -1 }, v: { x: 1, y: 0 }, center: { x: 5, y: 5 } }).W >= 8, "小さすぎる四角は、8画素に");
+});
+
+test("爪の写真の、ファイル名: 手の甲の写真と、同じ日付・時刻。指ごとの名前(thumb / index / middle / ring / pinky)が、付く", () => {
+  const d = new Date(2026, 10, 22, 9, 5, 7);
+  assert.equal(nailFileName(STEPS[1], "index", d), "hand_left_back_nail_index_20261122_090507.jpg");
+  assert.equal(nailFileName(STEPS[3], "pinky", d), "hand_right_back_nail_pinky_20261122_090507.jpg");
+  assert.equal(stepFileName(STEPS[1], d), "hand_left_back_20261122_090507.jpg");
+  const r = fingertipRects(makeHand({ hand: "right", facing: "back" }).lm, FRAME);
+  assert.deepEqual(r.map((n) => n.key), ["thumb", "index", "middle", "ring", "pinky"]);
 });
 
 // ---- 続ける時間 ----

@@ -227,6 +227,24 @@ try {
     const sh = await ev(`window.__shared`);
     check("S11 共有が使える端末(iPhone など)では、4枚(jpeg)を、まとめて、共有の画面に、渡す。ダウンロードは、増えない", sh.length === 1 && sh[0].length === 4 && sh[0].every((f) => f[1] === "image/jpeg" && f[2] === true) && (await ev(`window.__downloads.length`)) === 5, JSON.stringify(sh));
     await ev(`delete navigator.share; delete navigator.canShare; true`);
+    // 爪(指先)の写真の保存: 手の甲ごとに5枚。または、全部(手の甲 2つで 10枚)。 ファイル名は、指ごとの名前つき
+    check("S11b 『爪を全部、保存(10枚)』が、押せる。手の甲の項目に、『爪を保存』が、ある(手のひらには、無い)", (await text("#save-nails-all")) === "爪を全部、保存(10枚)" && !(await ev(`document.getElementById("save-nails-all").disabled`)) && (await ev(`document.querySelectorAll('#steps button[data-act="save-nails"]').length`)) === 2 && (await ev(`document.querySelectorAll('#steps li[data-i="0"] button[data-act="save-nails"]').length`)) === 0, await text("#save-nails-all"));
+    const dlBefore = await ev(`window.__downloads.length`);
+    await ev(`document.querySelector('#steps li[data-i="1"] button[data-act="save-nails"]').click(); true`);
+    await sleep(2200);
+    const dlN = (await ev(`window.__downloads`)).slice(dlBefore);
+    check("S11c 「爪を保存」で、その手の甲の爪が、5枚、ダウンロードされる(hand_left_back_nail_指の名前_日付_時刻.jpg)", dlN.length === 5 && ["thumb", "index", "middle", "ring", "pinky"].every((k) => dlN.some((d) => new RegExp("^hand_left_back_nail_" + k + "_\\d{8}_\\d{6}\\.jpg$").test(d.download))) && dlN.every((d) => d.href === "blob:"), JSON.stringify(dlN.map((d) => d.download)));
+    await ev(`document.getElementById("save-nails-all").click(); true`);
+    await sleep(4000);
+    const dlAll = (await ev(`window.__downloads`)).slice(dlBefore + 5);
+    check("S11d 「爪を全部、保存」で、10枚(左手の甲 5枚、右手の甲 5枚)が、ダウンロードされる", dlAll.length === 10 && dlAll.filter((d) => /^hand_left_back_nail_/.test(d.download)).length === 5 && dlAll.filter((d) => /^hand_right_back_nail_/.test(d.download)).length === 5, JSON.stringify(dlAll.map((d) => d.download)));
+    // 共有が使える端末: 爪の5枚を、まとめて、共有の画面に、渡す
+    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 200])); }; window.__shared.length = 0; true`);
+    await ev(`document.querySelector('#steps li[data-i="3"] button[data-act="save-nails"]').click(); true`);
+    await sleep(500);
+    const sh2 = await ev(`window.__shared`);
+    check("S11e 共有が使える端末では、爪の5枚(右手の甲)を、まとめて、共有の画面に、渡す", sh2.length === 1 && sh2[0].length === 5 && sh2[0].every((f) => /^hand_right_back_nail_/.test(f[0]) && f[1] === "image/jpeg" && f[2] === true), JSON.stringify(sh2));
+    await ev(`delete navigator.share; delete navigator.canShare; true`);
     // 撮り直す
     await ev(`document.querySelector('#steps li.done button[data-act="retake"]').click(); true`);
     check("S12 「撮り直す」で、その項目が、『次(current)』に戻り、案内が、変わる。『全部、保存(3枚)』", (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(3枚)", await text("#mode-help"));
