@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -264,6 +264,42 @@ test("撮る手の確認: 右手を撮る時に、左手が映ると『右手を
 test("撮る手の確認: 指定しなければ、チェック項目は、増えない。指定すると、1つ増える", () => {
   assert.ok(!checkList("palm").some((c) => c.id === "side") && checkList("palm", "right").some((c) => c.id === "side") && checkList("back", "left").some((c) => c.id === "side"));
   assert.equal(checkList("palm", "right").length, checkList("palm").length + 1);
+});
+
+// ---- 爪(指先)の四角 ----
+test("爪の四角: 5本分。縦は、第1関節〜指先の 1.25 倍、横は、1.0 倍。四角は、長方形(直角)。指先の少し先まで", () => {
+  const h = makeHand({ hand: "right", facing: "back" }), r = fingertipRects(h.lm, FRAME);
+  assert.equal(r.length, 5);
+  assert.deepEqual(r.map((n) => n.name), ["親指", "人差し指", "中指", "薬指", "小指"]);
+  const P = (i) => ({ x: h.lm[i].x * FRAME.w, y: h.lm[i].y * FRAME.h });
+  const dips = [3, 7, 11, 15, 19], tips = [4, 8, 12, 16, 20];
+  r.forEach((n, k) => {
+    const L0 = Math.hypot(P(tips[k]).x - P(dips[k]).x, P(tips[k]).y - P(dips[k]).y);
+    assert.ok(near(n.h, L0 * NAIL_BOX.lengthK, 1e-6) && near(n.w, L0 * NAIL_BOX.widthK, 1e-6), n.name);
+    const [a, b, c, d] = n.corners, ab = { x: b.x - a.x, y: b.y - a.y }, ad = { x: d.x - a.x, y: d.y - a.y };
+    assert.ok(near(Math.hypot(ab.x, ab.y), n.w, 1e-6) && near(Math.hypot(ad.x, ad.y), n.h, 1e-6) && near(ab.x * ad.x + ab.y * ad.y, 0, 1e-6), "長方形");
+    // 指先(tip)は、四角の中。 第1関節(dip)は、四角の、手前の辺の、真ん中
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    assert.ok(near(mid.x, P(dips[k]).x, 1e-6) && near(mid.y, P(dips[k]).y, 1e-6));
+    const along = ((P(tips[k]).x - a.x) * ad.x + (P(tips[k]).y - a.y) * ad.y) / (n.h * n.h);
+    assert.ok(near(along, 1 / NAIL_BOX.lengthK, 1e-6), "指先は、縦の 0.8 の所");
+  });
+});
+test("爪の四角: 指の向きに合わせて、回る(upAngle)。手を、画面の中で回すと、upAngle が、同じだけ、変わる。大きさは、変わらない", () => {
+  const h = makeHand({ hand: "right", facing: "back" });
+  const rot = (lm, deg) => { const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180); return lm.map((q) => { const x = (q.x - 0.5) * FRAME.w, y = (q.y - 0.5) * FRAME.h; return { x: 0.5 + (c * x - s * y) / FRAME.w, y: 0.5 + (s * x + c * y) / FRAME.h, z: 0 }; }); };
+  const a = fingertipRects(h.lm, FRAME), b = fingertipRects(rot(h.lm, 30), FRAME);
+  a.forEach((n, k) => {
+    let d = b[k].upAngle - n.upAngle; d = ((d + 540) % 360) - 180;
+    assert.ok(near(d, 30, 0.01), n.name + " " + d);
+    assert.ok(near(b[k].w, n.w, 1e-6) && near(b[k].h, n.h, 1e-6));
+  });
+  // 指が、真上を向く手: 中指の upAngle は、ほぼ 0(わずかな傾きは、ある)
+  assert.ok(Math.abs(a[2].upAngle) < 10, String(a[2].upAngle));
+  // 右手の甲(親指が、画面の左): 人差し指は、中指より、左へ傾き(小さい角度)、小指は、右へ傾く(大きい角度)。 指が、扇のように、開いている
+  assert.ok(a[1].upAngle < a[2].upAngle && a[2].upAngle < a[3].upAngle && a[3].upAngle < a[4].upAngle, a.map((n) => Math.round(n.upAngle)).join());
+  assert.equal(fingertipRects(null, FRAME), null);
+  assert.equal(fingertipRects(h.lm.slice(0, 10), FRAME), null);
 });
 
 // ---- 続ける時間 ----

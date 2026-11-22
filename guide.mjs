@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v23";
+export const VERSION = "v24";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -216,6 +216,37 @@ export function fingerShape(lm, frame) {
   const dirs = FINGERS.map((f) => { const m = px(lm[f.mcp], frame), t = px(lm[f.tip], frame); return { x: t.x - m.x, y: t.y - m.y }; });
   const gaps = [0, 1, 2].map((i) => angleBetween(dirs[i], dirs[i + 1]));
   return { extend, gaps, total: angleBetween(dirs[0], dirs[3]) };
+}
+
+// ---- 爪(指先)の四角 ----
+// 手の甲を撮る時に、5本の指先の、爪のあたりを、指の向きに合わせた、四角で示す(後で、切り出す範囲)。
+//   指の向き = 第1関節(dip)から指先(tip)へ。 四角は、その向きに沿って、第1関節から、指先の少し先まで。 幅は、指に直角。
+//   基準の長さ L0 = 第1関節〜指先。 縦 = L0 × lengthK、横 = L0 × widthK(あなたの手で試して、調整する)
+export const NAIL_BOX = { lengthK: 1.25, widthK: 1.0 };
+export const NAIL_FINGERS = [
+  { name: "親指", dip: 3, tip: 4 }, { name: "人差し指", dip: 7, tip: 8 }, { name: "中指", dip: 11, tip: 12 },
+  { name: "薬指", dip: 15, tip: 16 }, { name: "小指", dip: 19, tip: 20 },
+];
+// 戻り値: 5本分の { name, corners(画素の4点。第1関節側の左・右、指先側の右・左 の順), center, w, h, upAngle(指が、真上から、右へ傾いた角度。度) } | null
+export function fingertipRects(lm, frame, box = NAIL_BOX) {
+  if (!lm || lm.length < 21) return null;
+  const out = [];
+  for (const f of NAIL_FINGERS) {
+    const a = px(lm[f.dip], frame), b = px(lm[f.tip], frame);
+    const L0 = dist(a, b);
+    if (L0 < 1e-6) return null;
+    const u = { x: (b.x - a.x) / L0, y: (b.y - a.y) / L0 };   // 指の向き
+    const v = { x: -u.y, y: u.x };                              // 指に直角
+    const len = L0 * box.lengthK, wid = L0 * box.widthK;
+    const at = (s, t) => ({ x: a.x + u.x * s + v.x * t, y: a.y + u.y * s + v.y * t });
+    out.push({
+      name: f.name,
+      corners: [at(0, -wid / 2), at(0, wid / 2), at(len, wid / 2), at(len, -wid / 2)],
+      center: at(len / 2, 0), w: wid, h: len,
+      upAngle: (Math.atan2(u.x, -u.y) * 180) / Math.PI,
+    });
+  }
+  return out;
 }
 
 // 動き: 直近の、時間の幅の中で、いまの点と、いちばん違う点までの、ずれ(画面の対角に対する割合)

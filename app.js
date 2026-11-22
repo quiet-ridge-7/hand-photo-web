@@ -2,9 +2,9 @@
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 //   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName } from "./guide.mjs";
 
-const APP_VERSION = "v23";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v24";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -214,11 +214,24 @@ function drawGuide(guide, matched) {
 }
 
 // ---- 手の点を、重ねて描く ----
-function drawHand(lm, ok, guide = null, matched = false) {
+function drawHand(lm, ok, guide = null, matched = false, nails = null) {
   octx.clearRect(0, 0, overlay.width, overlay.height);
   if (guide) drawGuide(guide, matched);
   if (!lm) return;
   const w = overlay.width, h = overlay.height;
+  if (nails) {   // 爪(指先)の四角(手の甲を撮る時)。 水色。 指の向きに合わせて、傾く
+    octx.save();
+    octx.strokeStyle = "#35c9ff";
+    octx.lineWidth = Math.max(3, w / 300);
+    octx.lineJoin = "round";
+    for (const n of nails) {
+      octx.beginPath();
+      n.corners.forEach((p, i) => (i ? octx.lineTo(p.x, p.y) : octx.moveTo(p.x, p.y)));
+      octx.closePath();
+      octx.stroke();
+    }
+    octx.restore();
+  }
   octx.lineWidth = Math.max(2, w / 400);
   octx.strokeStyle = "rgba(255,255,255,0.85)";
   octx.beginPath();
@@ -286,7 +299,8 @@ function loop() {
   }
   const gm = guide && lm ? guideMatch(lm, guide, frame, false) : null;   // 一致(そのまま)だけ。ガイドの色(緑 / 白)に使う
   const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, wantHand: step ? step.hand : undefined, guideOverlap: gm ? gm.overlap : null });   // ガイドとの一致(そのまま)も、条件に入る
-  drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap));
+  const nails = lm && step && step.mode === "back" ? fingertipRects(lm, frame) : null;   // 手の甲を撮る時だけ、爪の四角を出す
+  drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap), nails);
   renderChecks(r.checks);
 
   const cooling = now < state.cooldownUntil;   // 撮った直後(次の案内を、見せる間)

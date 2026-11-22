@@ -9,6 +9,7 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeHand } from "./test_hands.mjs";
+import { fingertipRects } from "./guide.mjs";
 
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -147,6 +148,12 @@ try {
   const waitDone = (i, what) => waitFor(`document.querySelectorAll("#step-badges .badge")[${i}].classList.contains("done")`, what + "が、撮れる", 20000);
   const diag = async () => console.log("   hold=" + (await ev(`document.getElementById("hold").value`)) + " ガイド=" + (await guide()) + " checks=" + (await ev(`[...document.querySelectorAll("#checks li")].map((l) => l.className + ":" + l.textContent).join(" | ")`)));
   check("S0 先頭が『次(current)』。説明は『次は、「左手のひら」』。右の一覧は、まだ空(撮れた物だけが、並ぶ)", (await ev(`document.querySelectorAll("#steps li").length`)) === 0 && (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")), await text("#mode-help"));
+  // 爪の四角(水色): 人差し指の、指先の側の辺の、真ん中の画素(手の点や線は、そこには、無い)
+  const nailPix = async (opts) => {
+    const hnd = makeHand({ ...opts, frame: V }), r = fingertipRects(hnd.lm, V)[1];
+    const mx = (r.corners[2].x + r.corners[3].x) / 2, my = (r.corners[2].y + r.corners[3].y) / 2;
+    return ev(`(() => { const c = document.getElementById("overlay"); const d = c.getContext("2d").getImageData(Math.round(${mx}) - 1, Math.round(${my}) - 1, 3, 3).data; let r = 0, g = 0, b = 0, a = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; a += d[i + 3]; } const n = d.length / 4; return { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), a: Math.round(a / n) }; })()`);
+  };
   check("S0a 映像の左上に、いま撮っている項目が、大きく出る(『撮影中: 左手のひら』)。映像の枠の、左上にある", /^撮影中: 左手のひら$/.test(await text("#now-label")) && (await ev(`(() => { const n = document.getElementById("now-label").getBoundingClientRect(), st = document.getElementById("stage").getBoundingClientRect(); return n.left - st.left < 20 && n.top - st.top < 20 && n.width > 80; })()`)), await text("#now-label"));
   check("S0b 映像の上に、4つ(左手のひら・左手の甲・右手のひら・右手の甲)が、出る。先頭が、『次』(current)", (await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.textContent.replace(/^[✓▶] /, "")).join(",")`)) === "左手のひら,左手の甲,右手のひら,右手の甲" && (await ev(`document.querySelector("#step-badges .badge").classList.contains("current")`)) && !(await ev(`document.getElementById("step-badges").hidden`)));
   await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });   // 左手の番に、右手(まだ1枚も撮っていない)
@@ -157,6 +164,8 @@ try {
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });   // また、左手が映ったら、左手から
   await waitFor(`document.querySelectorAll("#step-badges .badge")[0].classList.contains("current")`, "左手から始める", 8000).catch(() => {});
   check("S1c また左手が映ると、左手のひらが『次』に戻る(まだ1枚も撮っていない間は、映った手から、始める)", (await stepClass(0)) === "current" && /左手が、先に映ったので、左手から始めます/.test(await text("#seq-note")), await text("#seq-note"));
+  const np0 = await nailPix({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
+  check("S1d 手のひらを撮る番では、爪の四角(水色)は、出ない", np0.a < 30, JSON.stringify(np0));
   await setHand({ hand: "left", facing: "palm", scale: 0.8 });
   let got = true;
   try { await waitDone(0, "左手のひら"); } catch { got = false; await diag(); }
@@ -170,6 +179,10 @@ try {
     await waitGuide("左手を、映してください(いまは、右手です)");
     await sleep(800);
     check("S5b 1枚撮った後は、逆の手が映っても、手は、切り替えない(『左手を、映してください(いまは、右手です)』。次は、左手の甲のまま)", (await stepClass(1)) === "current" && (await stepClass(2)) === "todo", await stepClass(1));
+    await setHand({ hand: "left", facing: "back", scale: 0.8, curl: 1 });
+    await sleep(800);
+    const np1 = await nailPix({ hand: "left", facing: "back", scale: 0.8, curl: 1 });
+    check("S5c 手の甲を撮る番では、爪の四角(水色)が、指先の先まで、出る(人差し指の、指先の側の辺の、真ん中の画素が、水色)", np1.a > 150 && np1.b - np1.r > 100 && np1.g - np1.r > 80, JSON.stringify(np1));
     // 1つだけ、保存(共有が、使えない端末では、ダウンロード)
     await ev(`document.querySelector('#steps li.done button[data-act="save"]').click(); true`);
     await sleep(700);
