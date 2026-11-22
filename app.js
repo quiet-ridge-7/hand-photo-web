@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v27";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v28";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -110,15 +110,10 @@ function renderSteps() {
     img.className = "thumb";
     img.src = shot.url;
     img.alt = s.label + "の写真";
-    const save = document.createElement("button");
-    save.type = "button"; save.dataset.act = "save"; save.dataset.i = String(i); save.textContent = "保存";
     const retake = document.createElement("button");
     retake.type = "button"; retake.dataset.act = "retake"; retake.dataset.i = String(i); retake.textContent = "撮り直す";
-    li.append(mark, name, img, save, retake);
-    if (shot.nails && shot.nails.length) {
-      const sn = document.createElement("button");
-      sn.type = "button"; sn.dataset.act = "save-nails"; sn.dataset.i = String(i); sn.textContent = "爪を保存";
-      li.insertBefore(sn, retake);   // 手の甲: 爪(指先)の、切り出した写真(小さく)。 押すと、拡大
+    li.append(mark, name, img, retake);
+    if (shot.nails && shot.nails.length) {   // 手の甲: 爪(指先)の、切り出した写真(小さく)。 押すと、拡大
       const row = document.createElement("div");
       row.className = "nails";
       shot.nails.forEach((n, k) => {
@@ -136,12 +131,10 @@ function renderSteps() {
     return li;
   }).filter(Boolean));
   const n = state.shots.filter(Boolean).length;
-  $("save-all").textContent = "全部、保存(" + n + "枚)";
+  const nn = state.shots.reduce((s, x) => s + (x && x.nails ? x.nails.length : 0), 0);   // 爪の写真の、枚数
+  $("save-all").textContent = "保存(" + (n + nn) + "枚)";   // 手のひら・手の甲の写真 + 爪の写真
   $("save-all").disabled = n === 0;
   $("reset-all").disabled = n === 0;
-  const nn = state.shots.reduce((s, x) => s + (x && x.nails ? x.nails.length : 0), 0);
-  $("save-nails-all").textContent = "爪を全部、保存(" + nn + "枚)";
-  $("save-nails-all").disabled = nn === 0;
 }
 
 function renderChecks(checks) {
@@ -485,16 +478,12 @@ async function saveItems(items, what) {
   $("seq-note").textContent = "ダウンロードしました(" + what + "、" + items.length + "枚): " + items.map((it) => it.filename).join("、");
 }
 
-// 手のひら・手の甲の、全体の写真を、保存する。 indexes: 保存する、番号
-function saveShots(indexes) {
-  return saveItems(indexes.filter((i) => state.shots[i]).map((i) => state.shots[i]), "全体の写真");
-}
-
-// 爪(指先)の写真を、保存する(手の甲の、5本ずつ)。 indexes: 保存する、手の甲の、番号
-function saveNails(indexes) {
+// 手のひら・手の甲の、全体の写真と、爪(指先)の写真を、まとめて、保存する(保存ボタンは、これ1つ)
+function saveAll() {
   const items = [];
-  for (const i of indexes) if (state.shots[i] && state.shots[i].nails) items.push(...state.shots[i].nails);
-  return saveItems(items, "爪の写真");
+  for (const s of state.shots) if (s) items.push(s);
+  for (const s of state.shots) if (s && s.nails) items.push(...s.nails);
+  return saveItems(items, "手と爪の写真");
 }
 
 // ---- 操作 ----
@@ -503,10 +492,7 @@ $("steps").addEventListener("click", (e) => {
   if (th) { openLightbox(Number(th.dataset.i), Number(th.dataset.k)); return; }
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
-  const i = Number(btn.dataset.i);
-  if (btn.dataset.act === "save") saveShots([i]);
-  else if (btn.dataset.act === "retake") retake(i);
-  else if (btn.dataset.act === "save-nails") saveNails([i]);
+  if (btn.dataset.act === "retake") retake(Number(btn.dataset.i));
 });
 $("step-badges").addEventListener("click", (e) => {   // 映像の上の、まだ撮っていない物を、押すと、それを、次に撮る物にする
   const b = e.target.closest(".badge");
@@ -529,8 +515,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") stepLightbox(1);
   else if (e.key === "ArrowLeft") stepLightbox(-1);
 });
-$("save-all").addEventListener("click", () => saveShots(STEPS.map((_, i) => i)));
-$("save-nails-all").addEventListener("click", () => saveNails(STEPS.map((_, i) => i)));
+$("save-all").addEventListener("click", saveAll);
 $("reset-all").addEventListener("click", resetAll);
 $("shoot").addEventListener("click", () => captureStep("manual"));
 $("flip").addEventListener("click", () => { state.facingMode = state.facingMode === "user" ? "environment" : "user"; startCamera(); });

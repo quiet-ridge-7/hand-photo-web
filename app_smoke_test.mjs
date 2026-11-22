@@ -171,9 +171,9 @@ try {
   try { await waitDone(0, "左手のひら"); } catch { got = false; await diag(); }
   check("S2 左手のひらを、約1秒、保つと、自動で撮れて、項目が、緑(done)になる", got);
   if (got) {
-    check("S3 撮れた項目に、写真(blob)の小さな絵と、『保存』『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 2 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
+    check("S3 撮れた項目に、写真(blob)の小さな絵と、『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 1 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
     check("S3b 撮れて、次の項目に移ると、左上の表示も、変わる(『撮影中: 左手の甲』)", /^撮影中: 左手の甲$/.test(await text("#now-label")), await text("#now-label"));
-    check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『全部、保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "全部、保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
+    check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
     check("S5 次は左手の甲なので、手のひらの手では、案内が『手の甲を、カメラに、向けてください』(チェックの項目名は、『手の甲側』)", await (async () => { await waitGuide("手の甲を、カメラに、向けてください"); return (await ev(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`)); })());
     await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });   // 1枚撮った後は、逆の手が映っても、始める手は、変えない
     await waitGuide("左手を、映してください(いまは、右手です)");
@@ -183,11 +183,7 @@ try {
     await sleep(800);
     const np1 = await nailPix({ hand: "left", facing: "back", scale: 0.8, curl: 1 });
     check("S5c 手の甲を撮る番では、爪の四角(水色)が、指先の先まで、出る(人差し指の、指先の側の辺の、真ん中の画素が、水色)", np1.a > 150 && np1.b - np1.r > 100 && np1.g - np1.r > 80, JSON.stringify(np1));
-    // 1つだけ、保存(共有が、使えない端末では、ダウンロード)
-    await ev(`document.querySelector('#steps li.done button[data-act="save"]').click(); true`);
-    await sleep(700);
-    const dl1 = await ev(`window.__downloads`);
-    check("S6 「保存」で、その1枚が、ダウンロードされる(hand_left_palm_日付_時刻.jpg)", dl1.length === 1 && /^hand_left_palm_\d{8}_\d{6}\.jpg$/.test(dl1[0].download) && dl1[0].href === "blob:", JSON.stringify(dl1));
+    check("S6 保存ボタンは、1つだけ(「保存(○枚)」)。項目ごとの『保存』『爪を保存』と、『爪を全部、保存』は、無い。項目ごとには、『撮り直す』だけ", (await ev(`[...document.querySelectorAll("#seq-panel button")].filter((b) => b.textContent.includes("保存")).length`)) === 1 && (await ev(`document.querySelectorAll('#steps button[data-act="save"], #steps button[data-act="save-nails"], #save-nails-all').length`)) === 0 && (await ev(`document.querySelectorAll('#steps li.done button[data-act="retake"]').length`)) === 1, await text("#save-all"));
     // 残りの3つ
     await setHand({ hand: "left", facing: "back", scale: 0.8 });
     let g2 = true; try { await waitDone(1, "左手の甲"); } catch { g2 = false; await diag(); }
@@ -210,47 +206,29 @@ try {
     check("S8 右手のひらが、撮れて、緑になる。次は『右手の甲』", g3 && (await stepClass(3)) === "current" && /次は、「右手の甲」/.test(await text("#mode-help")), await text("#mode-help"));
     await setHand({ hand: "right", facing: "back", scale: 0.8 });
     let g4 = true; try { await waitDone(3, "右手の甲"); } catch { g4 = false; await diag(); }
-    check("S9 右手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『全部、保存(4枚)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(4枚)", await guide());
+    check("S9 右手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『保存(14枚。全体の写真 4 + 爪 10)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "保存(14枚)", await guide());
     await ev(`window.__handNow = null; true`);
     await sleep(500);
     check("S9a 全部、撮れたら、左上の表示は、『全部、撮れました』(緑)", (await text("#now-label")) === "全部、撮れました" && (await ev(`document.getElementById("now-label").classList.contains("done")`)), await text("#now-label"));
     check("S9b 全部、撮れたら、枠は緑。ガイド(うすい形)は、出さない(手が無い画面で、ガイドの画素が、0)", (await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await guidePix()).n === 0, JSON.stringify(await guidePix()));
     check("S9c 映像の上の4つ(横一列)が、全部、緑(done)。左から、左手のひら・左手の甲・右手のひら・右手の甲。映像の、上にある", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b.every((r) => Math.abs(r.top - b[0].top) < 1) && b[0].left < b[1].left && b[1].left < b[2].left && b[2].left < b[3].left && b.every((r) => r.bottom <= st.top + 1); })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
-    // 全部、保存: 共有が使えない端末は、4つのダウンロード。使える端末は、共有の画面に、4枚を、渡す
+    // 保存: 共有が使えない端末は、14個のダウンロード。使える端末は、共有の画面に、14枚を、渡す
     await ev(`document.getElementById("save-all").click(); true`);
-    await sleep(1800);
+    await sleep(5200);
     const dl4 = await ev(`window.__downloads`);
-    check("S10 「全部、保存」で、4枚が、ダウンロードされる(左手のひら、左手の甲、右手のひら、右手の甲の、ファイル名)", dl4.length === 5 && ["left_palm", "left_back", "right_palm", "right_back"].every((k) => dl4.slice(1).some((d) => new RegExp("^hand_" + k + "_\\d{8}_\\d{6}\\.jpg$").test(d.download))), JSON.stringify(dl4.map((d) => d.download)));
-    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 1000])); }; true`);
+    check("S10 「保存」で、14枚(全体の写真 4枚 + 爪の写真 10枚)が、ダウンロードされる(ファイル名は、日付・時刻つき。爪には、指の名前)", dl4.length === 14 && ["left_palm", "left_back", "right_palm", "right_back"].every((k) => dl4.some((d) => new RegExp("^hand_" + k + "_" + String.fromCharCode(92) + "d{8}_" + String.fromCharCode(92) + "d{6}" + String.fromCharCode(92) + ".jpg$").test(d.download))) && ["left", "right"].every((h) => ["thumb", "index", "middle", "ring", "pinky"].every((k) => dl4.some((d) => d.download.startsWith("hand_" + h + "_back_nail_" + k + "_")))) && dl4.every((d) => d.href === "blob:"), JSON.stringify(dl4.map((d) => d.download)));
+    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 100])); }; true`);
     await ev(`document.getElementById("save-all").click(); true`);
     await sleep(500);
     const sh = await ev(`window.__shared`);
-    check("S11 共有が使える端末(iPhone など)では、4枚(jpeg)を、まとめて、共有の画面に、渡す。ダウンロードは、増えない", sh.length === 1 && sh[0].length === 4 && sh[0].every((f) => f[1] === "image/jpeg" && f[2] === true) && (await ev(`window.__downloads.length`)) === 5, JSON.stringify(sh));
-    await ev(`delete navigator.share; delete navigator.canShare; true`);
-    // 爪(指先)の写真の保存: 手の甲ごとに5枚。または、全部(手の甲 2つで 10枚)。 ファイル名は、指ごとの名前つき
-    check("S11b 『爪を全部、保存(10枚)』が、押せる。手の甲の項目に、『爪を保存』が、ある(手のひらには、無い)", (await text("#save-nails-all")) === "爪を全部、保存(10枚)" && !(await ev(`document.getElementById("save-nails-all").disabled`)) && (await ev(`document.querySelectorAll('#steps button[data-act="save-nails"]').length`)) === 2 && (await ev(`document.querySelectorAll('#steps li[data-i="0"] button[data-act="save-nails"]').length`)) === 0, await text("#save-nails-all"));
-    const dlBefore = await ev(`window.__downloads.length`);
-    await ev(`document.querySelector('#steps li[data-i="1"] button[data-act="save-nails"]').click(); true`);
-    await sleep(2200);
-    const dlN = (await ev(`window.__downloads`)).slice(dlBefore);
-    check("S11c 「爪を保存」で、その手の甲の爪が、5枚、ダウンロードされる(hand_left_back_nail_指の名前_日付_時刻.jpg)", dlN.length === 5 && ["thumb", "index", "middle", "ring", "pinky"].every((k) => dlN.some((d) => new RegExp("^hand_left_back_nail_" + k + "_\\d{8}_\\d{6}\\.jpg$").test(d.download))) && dlN.every((d) => d.href === "blob:"), JSON.stringify(dlN.map((d) => d.download)));
-    await ev(`document.getElementById("save-nails-all").click(); true`);
-    await sleep(4000);
-    const dlAll = (await ev(`window.__downloads`)).slice(dlBefore + 5);
-    check("S11d 「爪を全部、保存」で、10枚(左手の甲 5枚、右手の甲 5枚)が、ダウンロードされる", dlAll.length === 10 && dlAll.filter((d) => /^hand_left_back_nail_/.test(d.download)).length === 5 && dlAll.filter((d) => /^hand_right_back_nail_/.test(d.download)).length === 5, JSON.stringify(dlAll.map((d) => d.download)));
-    // 共有が使える端末: 爪の5枚を、まとめて、共有の画面に、渡す
-    await ev(`navigator.canShare = () => true; navigator.share = async (d) => { window.__shared.push(d.files.map((f) => [f.name, f.type, f.size > 200])); }; window.__shared.length = 0; true`);
-    await ev(`document.querySelector('#steps li[data-i="3"] button[data-act="save-nails"]').click(); true`);
-    await sleep(500);
-    const sh2 = await ev(`window.__shared`);
-    check("S11e 共有が使える端末では、爪の5枚(右手の甲)を、まとめて、共有の画面に、渡す", sh2.length === 1 && sh2[0].length === 5 && sh2[0].every((f) => /^hand_right_back_nail_/.test(f[0]) && f[1] === "image/jpeg" && f[2] === true), JSON.stringify(sh2));
+    check("S11 共有が使える端末(iPhone など)では、14枚(jpeg。全体の写真 4 + 爪 10)を、まとめて、共有の画面に、渡す。ダウンロードは、増えない", sh.length === 1 && sh[0].length === 14 && sh[0].every((f) => f[1] === "image/jpeg" && f[2] === true) && (await ev(`window.__downloads.length`)) === 14, JSON.stringify(sh));
     await ev(`delete navigator.share; delete navigator.canShare; true`);
     // 撮り直す
     await ev(`document.querySelector('#steps li.done button[data-act="retake"]').click(); true`);
-    check("S12 「撮り直す」で、その項目が、『次(current)』に戻り、案内が、変わる。『全部、保存(3枚)』", (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")) && (await text("#save-all")) === "全部、保存(3枚)", await text("#mode-help"));
+    check("S12 「撮り直す」で、その項目が、『次(current)』に戻り、案内が、変わる。『保存(13枚)』", (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")) && (await text("#save-all")) === "保存(13枚)", await text("#mode-help"));
     // 最初から(確認の窓は、「はい」にして)。 そのあと、右手が先に映れば、右手から始める。 左上を、自分で押して、選べば、手が違っても、変えない
     await ev(`window.__handNow = null; window.confirm = () => true; document.getElementById("reset-all").click(); true`);
-    check("S13 「最初から、撮り直す」で、全部、未(todo)に戻り、先頭が『次』。『全部、保存(0枚)』は、押せない", (await ev(`document.querySelectorAll("#steps li.done").length`)) === 0 && (await stepClass(0)) === "current" && (await ev(`document.getElementById("save-all").disabled`)), await text("#save-all"));
+    check("S13 「最初から、撮り直す」で、全部、未(todo)に戻り、先頭が『次』。『保存(0枚)』は、押せない", (await ev(`document.querySelectorAll("#steps li.done").length`)) === 0 && (await stepClass(0)) === "current" && (await ev(`document.getElementById("save-all").disabled`)), await text("#save-all"));
     await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
     await waitFor(`document.querySelectorAll("#step-badges .badge")[2].classList.contains("current")`, "やり直した後の、右手から始める", 8000).catch(() => {});
     check("S13b やり直した後も、右手が先に映れば、右手から始める(右手のひらが『次』)。その後の順番は、右手のひら → 右手の甲 → 左手のひら → 左手の甲", (await stepClass(2)) === "current", await stepClass(2));
