@@ -16,7 +16,7 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HTTP_PORT = 8786, CDP_PORT = 9345;
 const BASE = "http://127.0.0.1:" + HTTP_PORT + "/";
 const EDGE = process.env.EDGE_PATH || "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".wasm": "application/wasm", ".task": "application/octet-stream" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".wasm": "application/wasm", ".task": "application/octet-stream", ".webmanifest": "application/manifest+json", ".png": "image/png", ".txt": "text/plain; charset=utf-8" };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const failures = [];
 const check = (name, cond, detail = "") => { console.log((cond ? "OK " : "NG ") + name + (cond ? "" : "  <- " + detail)); if (!cond) failures.push(name); };
@@ -281,6 +281,46 @@ try {
   const external = [...hosts].filter((h) => h !== "127.0.0.1:" + HTTP_PORT);
   check("B17 通信した先は、この画面の置き場所だけ(外のサイトへの、通信は、無い)", external.length === 0, JSON.stringify(external));
   check("B18 読み込んだのは、手のモデル(models/hand_landmarker.task)と、MediaPipe の部品だけ(顔のモデルなどは、無い)", requested.includes("/models/hand_landmarker.task") && !requested.some((n) => /face_/.test(n)), JSON.stringify(requested.filter((n) => /models|wasm/.test(n))));
+  // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
+  await load("");
+  await waitFor(`document.readyState === "complete" && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(PWA の確認)", 30000);
+  const pwa = await ev(`(async () => {
+    const link = document.querySelector('link[rel="manifest"]');
+    const m = link ? await (await fetch(link.href)).json() : null;
+    const icon = async (src) => { const b = await (await fetch(src)).blob(); const bm = await createImageBitmap(b); return [bm.width, bm.height, b.type]; };
+    return {
+      manifest: m,
+      icons: m ? await Promise.all(m.icons.map((i) => icon(i.src))) : [],
+      touch: !!document.querySelector('link[rel="apple-touch-icon"]'),
+      theme: (document.querySelector('meta[name="theme-color"]') || {}).content || null,
+      regs: (await navigator.serviceWorker.getRegistrations()).length,
+      licenses: (await fetch("licenses.txt")).ok,
+    };
+  })()`);
+  check("C1 manifest.webmanifest が、読める(名前『手の撮影』、全画面 standalone、色、アイコン 192 と 512)", !!pwa.manifest && pwa.manifest.short_name === "手の撮影" && pwa.manifest.display === "standalone" && pwa.manifest.start_url === "./" && pwa.manifest.theme_color === "#0f172a" && pwa.manifest.icons.length === 2, JSON.stringify(pwa.manifest));
+  check("C2 アイコン(192 × 192 と 512 × 512 の、PNG)が、読める。apple-touch-icon と、theme-color もある", pwa.icons.length === 2 && pwa.icons[0][0] === 192 && pwa.icons[0][1] === 192 && pwa.icons[1][0] === 512 && pwa.icons[1][1] === 512 && pwa.icons.every((i) => i[2] === "image/png") && pwa.touch && pwa.theme === "#0f172a", JSON.stringify([pwa.icons, pwa.touch, pwa.theme]));
+  check("C3 この PC(127.0.0.1)では、ふつうに開いても、サービスワーカーは、登録しない(古い物が、残らない)。ライセンスの表示(licenses.txt)が、読める", pwa.regs === 0 && pwa.licenses, JSON.stringify([pwa.regs, pwa.licenses]));
+
+  // ?sw=1 の時だけ、登録する(試験用)。 初めの読み込みで、登録 → 覚える。 もう一度、読み込むと、大きな物(MediaPipe、手のモデル)も、覚える
+  await load("?sw=1");
+  await waitFor(`navigator.serviceWorker.ready.then(() => true)`, "サービスワーカーの準備", 20000);
+  await sleep(1500);
+  const sw1 = await ev(`(async () => { const keys = await caches.keys(); const c = await caches.open("hand-photo-web-v1"); const names = (await c.keys()).map((r) => new URL(r.url).pathname); return { keys, names, active: !!(await navigator.serviceWorker.getRegistration()).active }; })()`);
+  check("C4 ?sw=1 では、サービスワーカーが、登録され、動き出す。コード(index.html、app.js、guide.mjs、hand_setup.mjs、style.css、manifest、アイコン、licenses.txt)を、覚える", sw1.active && sw1.keys.includes("hand-photo-web-v1") && ["/", "/index.html", "/app.js", "/guide.mjs", "/hand_setup.mjs", "/style.css", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/licenses.txt"].every((n) => sw1.names.includes(n)), JSON.stringify(sw1));
+  await load("?sw=1");
+  await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "2回目の読み込み(SW あり)", 30000);
+  await sleep(800);
+  const heavy = await ev(`(async () => { const c = await caches.open("hand-photo-web-heavy-v1"); return (await c.keys()).map((r) => new URL(r.url).pathname); })()`);
+  check("C5 2回目の読み込みで、大きな物(手のモデル、MediaPipe の部品)も、覚える(別の箱)", heavy.includes("/models/hand_landmarker.task") && heavy.includes("/lib/mediapipe/vision_bundle.mjs") && heavy.some((n) => n.endsWith(".wasm")), JSON.stringify(heavy));
+  // ネットを切って(オフライン)、開く: 覚えた物だけで、動く
+  await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await load("");
+  await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "オフラインでの起動", 30000).catch(() => {});
+  const off = await ev(`({ status: document.getElementById("status").textContent, version: document.getElementById("version").textContent, steps: document.querySelectorAll("#step-badges .badge").length })`);
+  await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  check("C6 ネットを切っても(オフライン)、開ける。手のモデルも、読み込める(覚えた物だけで、動く)", /手の検出の、準備ができました/.test(off.status) && /^版: app v\d+ \/ guide v\d+$/.test(off.version) && off.steps === 4, JSON.stringify(off));
+  await ev(`navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).then(() => caches.keys()).then((ks) => ks.forEach((k) => caches.delete(k))); true`);
+  check("C7 ページのエラーは、出ていない(PWA の確認の間も)", pageErrors.length === 0, pageErrors.join(" | "));
   void sizeAfterA;
 } catch (e) {
   console.log("試験が、途中で止まりました: " + e.message);

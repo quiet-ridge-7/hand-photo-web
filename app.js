@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v28";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v29";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -526,6 +526,9 @@ applyMode();
 renderModeHelp();
 renderSteps();
 $("version").textContent = "版: app " + APP_VERSION + " / guide " + VERSION + (APP_VERSION === VERSION ? "" : "  ← 違います。古いファイルが、混ざっています。Ctrl+F5 を、押してください");
+// サービスワーカー(2回目からの、読み込みを、速くする。ネットが無くても、動く)。 この PC(localhost)では、古い物が、残って、開発の邪魔になるので、登録しない(?sw=1 で、試験の時だけ、登録する)
+const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+if ("serviceWorker" in navigator && (!isLocal || params.get("sw") === "1")) navigator.serviceWorker.register("sw.js").catch(() => {});
 startCamera();
 (async function boot() {
   try {
