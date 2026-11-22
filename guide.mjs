@@ -5,13 +5,13 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v19";
+export const VERSION = "v20";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
   sizeMin: 0.50,       // 手の大きさ(手の枠の、長い方 ÷ 画面の短い辺)。これより小さいと「遠い」
   sizeMax: 0.98,       // これより大きいと「近い」
-  guideOverlap: 0.55,  // ガイドとの一致した面積(そのまま重ねた時)が、これ以上なら、ガイド(うすい形)を緑にする(条件には、入れない)
+  guideOverlap: 0.55,  // ガイドとの一致した面積(そのまま重ねた時)の、最小。これ以上で、ガイド(うすい形)が緑になり、条件「ガイドに重なっている」が、そろう
   centerTol: 0.25,     // 手の中心が、画面の中心から、この割合(画面の幅・高さに対して)より外れると、「中央に」
   flatMin: 0.45,       // 手のひらの幅 ÷ 高さ。これより小さいと、「傾いている」(カメラに、まっすぐ向けていない)
   extendRatio: 1.12,   // 指が伸びている: (指先〜手首) ÷ (第2関節〜手首) が、これ以上
@@ -289,7 +289,7 @@ export function checkList(mode, wantHand = null) {
     const side = wantHand ? [{ id: "side", label: wantHand === "right" ? "右手" : "左手" }] : [];   // 撮る手(右 / 左)が、合っているか
     return [...common, ...side, { id: "inside", label: "画面に入っている" }, { id: "size", label: "近さ" }, { id: "center", label: "中央" },
       { id: "facing", label: mode === "palm" ? "手のひら側" : "手の甲側" }, { id: "flat", label: "まっすぐ" },
-      { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" },
+      { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" }, { id: "guide", label: "ガイドに重なっている" },
       { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
   }
   return common;
@@ -325,7 +325,7 @@ export function stepFileName(step, date) {
   return "hand_" + step.hand + "_" + step.mode + "_" + date.getFullYear() + p2(date.getMonth() + 1) + p2(date.getDate()) + "_" + p2(date.getHours()) + p2(date.getMinutes()) + p2(date.getSeconds()) + ".jpg";
 }
 
-// 判定。 input: { mode, landmarks(21個 | null), label("Left" | "Right"), frame({w, h}), motion(動き), brightness(0〜255 | null), sharp(くっきり度 | null), wantHand(撮る手 "right" | "left" | 省略) }
+// 判定。 input: { mode, landmarks(21個 | null), label("Left" | "Right"), frame({w, h}), motion(動き), brightness(0〜255 | null), sharp(くっきり度 | null), guideOverlap(ガイドとの一致 0〜1 | 省略), wantHand(撮る手 "right" | "left" | 省略) }
 //   戻り値: { checks: [{ id, label, ok, msg }], allOk, guide, numbers }
 //   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
 export function evaluate(input) {
@@ -376,6 +376,14 @@ export function evaluate(input) {
       ok.open = narrow < 0 && shape.total >= T.openTotalMinDeg;
       if (narrow >= 0) msgs.open = FINGERS[narrow].name + "と" + FINGERS[narrow + 1].name + "が、重なっています。少し、離してください";
       else if (!ok.open) msgs.open = "指を、少し、離してください";
+      // ガイドとの一致(「そのまま」。0〜1)。 渡されない時(試験など)は、判定しない
+      if (input.guideOverlap != null) {
+        numbers.guideOverlap = Math.round(input.guideOverlap * 100);
+        ok.guide = input.guideOverlap >= T.guideOverlap;
+        if (!ok.guide) msgs.guide = "手を、ガイドの形に、重ねてください";
+      } else {
+        ok.guide = true;
+      }
 
     }
   }

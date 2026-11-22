@@ -203,14 +203,23 @@ test("ガイドとの一致: 手の甲のガイドに、手のひらの手を重
   assert.equal(maskIoU(null, gb.sil), null);
 });
 
-test("ガイドの一致は、条件に入れない: 一致(そのまま)を渡しても、チェック項目は、増えず、判定も、変わらない", () => {
+test("ガイドに重なっている: 一致(そのまま)が 55% 未満だと、条件が、そろわない。ガイドの文が、出る。55% 以上で、そろう。渡さない時(試験など)は、判定しない", () => {
   const hand = makeHand({ hand: "right", facing: "palm" });
-  assert.ok(!checkList("palm").some((c) => c.id === "guide") && !checkList("back").some((c) => c.id === "guide"));
-  const a = run("palm", hand), b = run("palm", hand, { guideOverlap: 0.05 });
-  assert.equal(a.allOk, true);
-  assert.equal(b.allOk, true);
-  assert.equal(b.checks.length, a.checks.length);
-  assert.equal(b.numbers.guideOverlap, undefined);
+  const at = (o) => run("palm", hand, o);
+  const low = at({ guideOverlap: 0.21 });
+  assert.ok(!low.allOk && low.checks.find((c) => c.id === "guide").ok === false && low.guide === "手を、ガイドの形に、重ねてください" && low.numbers.guideOverlap === 21, low.guide);
+  const edge = at({ guideOverlap: T.guideOverlap }), high = at({ guideOverlap: 0.9 }), none = at({});
+  assert.ok(edge.allOk && high.allOk && none.allOk && none.numbers.guideOverlap === undefined);
+  assert.ok(checkList("palm").some((c) => c.id === "guide") && checkList("back").some((c) => c.id === "guide"));
+  assert.equal(checkList("palm", "right").length, checkList("palm").length + 1);
+});
+test("ガイドに重なっている: 順番は、指の重なりの後、明るさの前。近さが先(近さの文が、先に出る)。撮る手の確認は、もっと先", () => {
+  const ids = checkList("palm", "right").map((c) => c.id);
+  assert.ok(ids.indexOf("guide") === ids.indexOf("open") + 1 && ids.indexOf("guide") < ids.indexOf("bright") && ids.indexOf("side") < ids.indexOf("size") && ids.indexOf("size") < ids.indexOf("guide"));
+  const far = run("palm", makeHand({ hand: "right", facing: "palm", scale: 0.3 }), { guideOverlap: 0.1 });
+  assert.equal(far.guide, "もう少し、近づけてください");
+  const side = run("palm", makeHand({ hand: "left", facing: "palm" }), { guideOverlap: 0.1, wantHand: "right" });
+  assert.equal(side.guide, "右手を、映してください(いまは、左手です)");
 });
 test("ガイドとの一致: withShape を false にすると、形だけ(shape)は、計算しない。そのまま(overlap)は、同じ", () => {
   const g = makeGuide(FRAME, { hand: "right", facing: "palm" }), h = makeHand({ hand: "right", facing: "palm", cx: 0.6 });

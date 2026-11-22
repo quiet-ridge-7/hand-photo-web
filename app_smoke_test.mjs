@@ -89,7 +89,7 @@ try {
   await waitFor(`/手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "手のモデルの読み込み(WASM)", 40000);
   check("A2 本物の手のモデル(MediaPipe)が、読み込めた", true);
   await waitFor(`document.getElementById("guide").textContent.includes("手を、画面に、映してください")`, "手が無い時の、ガイド", 15000);
-  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(12。左手のひらの番なので、『左手』の項目が入る)", (await ev(`document.querySelectorAll("#checks li").length`)) === 12, await text("#guide"));
+  check("A3 偽のカメラには、手が無いので、「手を、画面に、映してください」と、出る。チェック項目は、手のひらモードの数(13。撮る手の確認と、ガイドの確認が、入る)", (await ev(`document.querySelectorAll("#checks li").length`)) === 13, await text("#guide"));
   check("A3v 画面に、ファイルの版が出る(app と guide が、同じ。古いファイルが、混ざっていない)", /^版: app (v\d+) \/ guide \1$/.test(await text("#version")), await text("#version"));
   check("A4 手が無い時、枠は、緑にならない。撮影は、自動では、始まらない(撮れた物が、0)", !(await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 0);
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
@@ -128,6 +128,15 @@ try {
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
   for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && Math.abs(gp.g - gp.r) < 20) break; await sleep(100); }
   check("G2 手を右にずらして、一致が下がると、ガイドは、白に戻る", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
+  const guideLi = () => ev(`(() => { const li = [...document.querySelectorAll("#checks li")].find((l) => l.textContent.includes("ガイドに重なっている")); return li ? li.className : null; })()`);
+  check("G5 チェック一覧に『ガイドに重なっている』がある。手をずらして(一致が下がる)と、そろっていない(ng)。案内の文も、出る", (await guideLi()) === "ng", String(await guideLi()));
+  await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, cx: 0.62 });   // 中央の許容の中で、ガイドから、ずらす
+  await sleep(600);
+  check("G5b 中央の許容の中でも、ガイドから、ずれていれば(一致が 55% 未満)、案内は『手を、ガイドの形に、重ねてください』(指が曲がっているので、指の案内が、先に出る場合は、ng のまま)", (await guideLi()) === "ng", String(await guideLi()));
+  await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
+  let gl = null;
+  for (let k = 0; k < 60; k++) { gl = await guideLi(); if (gl === "ok") break; await sleep(100); }
+  check("G6 ガイドに重ねると(一致 55%以上)、『ガイドに重なっている』が、そろう(ok)", gl === "ok", String(gl));
   await ev(`window.__handNow = null; true`);
   await sleep(500);
   gp = await guidePix();
