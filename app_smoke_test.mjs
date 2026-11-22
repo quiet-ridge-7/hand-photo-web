@@ -118,13 +118,13 @@ try {
   await waitGuide("人差し指と中指が、重なっています。少し、離してください");
   check("B3 遠い・指が曲がっている・指が閉じている、のガイドが、順に、出る", true);
 
-  // 手の形のガイド(うすい形): 手のひらモードで、画面の真ん中に出る。いまの手と重なっていれば(一致 55%以上)緑、そうでなければ白
+  // 手の形のガイド(うすい形): 手のひらモードで、画面の真ん中に出る。いまの手と重なっていれば(一致 50%以上)緑、そうでなければ白
   //   ガイドだけの画素(透明度 40〜75)の、平均の色で見る
   const guidePix = () => ev(`(() => { const c = document.getElementById("overlay"); const x0 = Math.round(c.width * 0.42), y0 = Math.round(c.height * 0.55); const d = c.getContext("2d").getImageData(x0, y0, Math.round(c.width * 0.16), Math.round(c.height * 0.2)).data; let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 3] >= 40 && d[i + 3] <= 75) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; } } return n ? { n, r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { n: 0 }; })()`);
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
   let gp = { n: 0 };
   for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && gp.g - gp.r > 50) break; await sleep(100); }
-  check("G1 手のひらモード: ガイド(うすい形)が出ている。ガイドと同じ位置の手(一致 55%以上)では、ガイドは緑", gp.n > 50 && gp.g - gp.r > 50, JSON.stringify(gp));
+  check("G1 手のひらモード: ガイド(うすい形)が出ている。ガイドと同じ位置の手(一致 50%以上)では、ガイドは緑", gp.n > 50 && gp.g - gp.r > 50, JSON.stringify(gp));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
   for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && Math.abs(gp.g - gp.r) < 20) break; await sleep(100); }
   check("G2 手を右にずらして、一致が下がると、ガイドは、白に戻る", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
@@ -132,11 +132,11 @@ try {
   check("G5 チェック一覧に『ガイドに重なっている』がある。手をずらして(一致が下がる)と、そろっていない(ng)。案内の文も、出る", (await guideLi()) === "ng", String(await guideLi()));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, cx: 0.62 });   // 中央の許容の中で、ガイドから、ずらす
   await sleep(600);
-  check("G5b 中央の許容の中でも、ガイドから、ずれていれば(一致が 55% 未満)、案内は『手を、ガイドの形に、重ねてください』(指が曲がっているので、指の案内が、先に出る場合は、ng のまま)", (await guideLi()) === "ng", String(await guideLi()));
+  check("G5b 中央の許容の中でも、ガイドから、ずれていれば(一致が 50% 未満)、案内は『手を、ガイドの形に、重ねてください』(指が曲がっているので、指の案内が、先に出る場合は、ng のまま)", (await guideLi()) === "ng", String(await guideLi()));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
   let gl = null;
   for (let k = 0; k < 60; k++) { gl = await guideLi(); if (gl === "ok") break; await sleep(100); }
-  check("G6 ガイドに重ねると(一致 55%以上)、『ガイドに重なっている』が、そろう(ok)", gl === "ok", String(gl));
+  check("G6 ガイドに重ねると(一致 50%以上)、『ガイドに重なっている』が、そろう(ok)", gl === "ok", String(gl));
   await ev(`window.__handNow = null; true`);
   await sleep(500);
   gp = await guidePix();

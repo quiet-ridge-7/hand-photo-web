@@ -142,8 +142,8 @@ test("ガイド: 遠い / 近い / はみ出し / 中央から外れ / 傾き", 
   assert.equal(run("palm", makeHand({ scale: 1.3 })).guide, "手が、はみ出しています。画面の中に、入れてください");   // 大きすぎて、はみ出す(はみ出しが、先)
   assert.equal(run("palm", makeHand({ cx: 0.96, scale: 0.7 })).guide, "手が、はみ出しています。画面の中に、入れてください");
   assert.equal(run("palm", makeHand({ cx: 0.22, scale: 0.75 })).guide, "手を、画面の中央に、動かしてください");
-  assert.equal(run("palm", makeHand({ scale: 0.6 })).guide, "もう少し、近づけてください");   // 手の大きさ 0.60 は、下限 0.70 より、小さい
-  assert.equal(run("palm", makeHand({ scale: 0.72 })).guide, "そのまま、止めてください");   // 0.72 は、通る
+  assert.equal(run("palm", makeHand({ scale: 0.6 })).guide, "もう少し、近づけてください");   // 手の大きさ 0.60 は、下限 0.65 より、小さい
+  assert.equal(run("palm", makeHand({ scale: 0.68 })).guide, "そのまま、止めてください");   // 0.68 は、通る
   assert.equal(run("palm", makeHand({ tilt: 0.4 })).guide, "手を、カメラに、まっすぐ向けてください(傾いています)");
 });
 test("ガイド: 指が曲がっている → 指の名前つき。指が閉じている → となり合う指の名前つき", () => {
@@ -205,7 +205,7 @@ test("ガイドとの一致: 手の甲のガイドに、手のひらの手を重
   assert.equal(maskIoU(null, gb.sil), null);
 });
 
-test("ガイドに重なっている: 一致(そのまま)が 55% 未満だと、条件が、そろわない。ガイドの文が、出る。55% 以上で、そろう。渡さない時(試験など)は、判定しない", () => {
+test("ガイドに重なっている: 一致(そのまま)が 50% 未満だと、条件が、そろわない。ガイドの文が、出る。50% 以上で、そろう。渡さない時(試験など)は、判定しない", () => {
   const hand = makeHand({ hand: "right", facing: "palm" });
   const at = (o) => run("palm", hand, o);
   const low = at({ guideOverlap: 0.21 });
