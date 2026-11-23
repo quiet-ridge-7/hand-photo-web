@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v33";
+export const VERSION = "v34";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -71,6 +71,27 @@ export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
 ];
 export const PALM_POLY = [0, 1, 5, 9, 13, 17];
 
+// 小指の下の、手のひらの、ふくらみ(小指側の、丸み)。 手首(0)と小指の付け根(17)を結ぶ辺を、外へ、ゆるく、ふくらませる。
+//   辺の上に、円を、n 個、並べる(辺の真ん中で、いちばん外へ。 外へのずれ = 手のひらの幅 × out × sin)。 円の半径は、手のひらの辺の太さ(SIL.palm)と、同じ。
+export const SIL_BULGE = { n: 9, out: 0.13 };
+// P: 手の点(21個。x, y)。 戻り値: [{ x, y, r }](ガイドの絵と、形の地図の、両方で、同じ円を使う)
+export function silDisks(P) {
+  const palmW = dist(P[5], P[17]);
+  const cen = PALM_POLY.reduce((s, i) => ({ x: s.x + P[i].x / PALM_POLY.length, y: s.y + P[i].y / PALM_POLY.length }), { x: 0, y: 0 });
+  const a = P[17], b = P[0];
+  const e = { x: b.x - a.x, y: b.y - a.y }, L = Math.hypot(e.x, e.y);
+  if (L < 1e-9 || palmW < 1e-9 || SIL_BULGE.n < 1) return [];
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  let n = { x: -e.y / L, y: e.x / L };
+  if ((mid.x - cen.x) * n.x + (mid.y - cen.y) * n.y < 0) n = { x: -n.x, y: -n.y };   // 手のひらの、外へ
+  const out = [];
+  for (let k = 1; k <= SIL_BULGE.n; k++) {
+    const s = k / (SIL_BULGE.n + 1), off = SIL_BULGE.out * palmW * Math.sin(Math.PI * s);
+    out.push({ x: a.x + e.x * s + n.x * off, y: a.y + e.y * s + n.y * off, r: SIL.palm * palmW });
+  }
+  return out;
+}
+
 // 土台の手の形(手首が原点、指が上向き、手のひらが、カメラに向いた、右手。単位は、手の長さに近い、相対の値)
 function templatePoints(spread = 12) {
   const dirAngle = [1.5, 0.5, -0.5, -1.5].map((k) => k * spread);
@@ -120,6 +141,11 @@ export function silhouetteMask(lm, frame, gw = 200) {
         if (Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy)) <= r) mask[j * gw + i] = 1;
       }
     }
+  }
+  for (const d of silDisks(P)) {   // 小指の下の、ふくらみ
+    const x0 = Math.max(0, Math.floor(d.x - d.r)), x1 = Math.min(gw - 1, Math.ceil(d.x + d.r));
+    const y0 = Math.max(0, Math.floor(d.y - d.r)), y1 = Math.min(gh - 1, Math.ceil(d.y + d.r));
+    for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) if (Math.hypot(i + 0.5 - d.x, j + 0.5 - d.y) <= d.r) mask[j * gw + i] = 1;
   }
   let area = 0;
   for (let i = 0; i < mask.length; i++) area += mask[i];

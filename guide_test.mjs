@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, silDisks, SIL_BULGE, SIL, PALM_POLY } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -338,6 +338,32 @@ test("爪の写真の、ファイル名: 手の甲の写真と、同じ日付・
   assert.equal(stepFileName(STEPS[1], d), "hand_left_back_20261122_090507.jpg");
   const r = fingertipRects(makeHand({ hand: "right", facing: "back" }).lm, FRAME);
   assert.deepEqual(r.map((n) => n.key), ["thumb", "index", "middle", "ring", "pinky"]);
+});
+
+test("ガイドの形: 小指の下の、手のひらが、丸い(外へ、ふくらむ)。円は、辺(小指の付け根〜手首)の上に、並び、真ん中で、いちばん外へ。右手でも、左手でも、手のひらでも、甲でも、手のひらの、外側", () => {
+  for (const o of [{ hand: "right", facing: "palm" }, { hand: "left", facing: "palm" }, { hand: "right", facing: "back" }, { hand: "left", facing: "back" }]) {
+    const g = makeGuide(FRAME, o), P = g.lm.map((q) => ({ x: q.x * FRAME.w, y: q.y * FRAME.h }));
+    const d = silDisks(P), palmW = Math.hypot(P[5].x - P[17].x, P[5].y - P[17].y);
+    assert.equal(d.length, SIL_BULGE.n);
+    const cen = PALM_POLY.reduce((s, i) => ({ x: s.x + P[i].x / 6, y: s.y + P[i].y / 6 }), { x: 0, y: 0 });
+    const e = { x: P[0].x - P[17].x, y: P[0].y - P[17].y }, L = Math.hypot(e.x, e.y), nrm = { x: -e.y / L, y: e.x / L };
+    const dist = (p) => ((p.x - P[17].x) * nrm.x + (p.y - P[17].y) * nrm.y);   // 辺からの、距離(符号つき)
+    const sign = Math.sign(dist(cen)) * -1;   // 外が、プラスになるように
+    const offs = d.map((p) => sign * dist(p));
+    assert.ok(offs.every((v) => v > 0), JSON.stringify(o) + " 外へ " + offs.map((v) => Math.round(v)).join());
+    const mx = Math.max(...offs);
+    assert.ok(Math.abs(mx - SIL_BULGE.out * palmW) < 0.05 * palmW && offs.indexOf(mx) === Math.floor(SIL_BULGE.n / 2), "真ん中が、いちばん外 " + offs.map((v) => Math.round(v)).join());
+    assert.ok(d.every((p) => Math.abs(p.r - SIL.palm * palmW) < 1e-9));
+    assert.ok(offs[0] < mx && offs[offs.length - 1] < mx, "両端は、小さい");
+  }
+  // ふくらみの分、面積が、増える。 ガイドと、同じ手は、100%
+  const g = makeGuide(FRAME, { hand: "right", facing: "palm" });
+  const saved = SIL_BULGE.n;
+  SIL_BULGE.n = 0;
+  const flat = silhouetteMask(g.lm, FRAME, 200).area;
+  SIL_BULGE.n = saved;
+  assert.ok(g.sil.area > flat, "ふくらみの分、面積が、増える");
+  assert.ok(guideMatch(g.lm, g, FRAME).overlap > 0.999);
 });
 
 // ---- 続ける時間 ----
