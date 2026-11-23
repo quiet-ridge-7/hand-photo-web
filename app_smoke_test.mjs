@@ -231,7 +231,12 @@ try {
     await ev(`document.querySelector('#steps li.done button[data-act="retake"]').click(); true`);
     check("S12 「撮り直す」で、その項目が、『次(current)』に戻り、案内が、変わる。『保存(13枚)』", (await stepClass(0)) === "current" && /次は、「左手のひら」/.test(await text("#mode-help")) && (await text("#save-all")) === "保存(13枚)", await text("#mode-help"));
     // 最初から(確認の窓は、「はい」にして)。 そのあと、右手が先に映れば、右手から始める。 左上を、自分で押して、選べば、手が違っても、変えない
-    await ev(`window.__handNow = null; window.confirm = () => true; document.getElementById("reset-all").click(); true`);
+    // 最初から、撮り直す: 1回目では、消えない(ボタンの文字が、変わる。4秒で、元に戻る)。 2回目で、消える。 確認の窓(confirm)は、使わない
+    await ev(`window.__handNow = null; window.__confirmCalled = false; window.confirm = () => { window.__confirmCalled = true; return true; }; document.getElementById("reset-all").click(); true`);
+    check("S12b 「最初から、撮り直す」を、1回押しても、消えない。ボタンが『もう一度、押すと、全部、消えます』(赤)に変わる。確認の窓(confirm)は、出さない", (await text("#reset-all")) === "もう一度、押すと、全部、消えます" && (await ev(`document.getElementById("reset-all").classList.contains("danger")`)) && (await ev(`document.querySelectorAll("#steps li.done").length`)) > 0 && !(await ev(`window.__confirmCalled`)), await text("#reset-all"));
+    await sleep(4500);
+    check("S12c 押さずに、4秒たつと、ボタンは、元(『最初から、撮り直す』)に戻る。写真は、消えていない", (await text("#reset-all")) === "最初から、撮り直す" && !(await ev(`document.getElementById("reset-all").classList.contains("danger")`)) && (await ev(`document.querySelectorAll("#steps li.done").length`)) > 0);
+    await ev(`document.getElementById("reset-all").click(); document.getElementById("reset-all").click(); true`);
     check("S13 「最初から、撮り直す」で、全部、未(todo)に戻り、先頭が『次』。『保存(0枚)』は、押せない", (await ev(`document.querySelectorAll("#steps li.done").length`)) === 0 && (await stepClass(0)) === "current" && (await ev(`document.getElementById("save-all").disabled`)), await text("#save-all"));
     await setHand({ hand: "right", facing: "palm", scale: 0.8, curl: 1 });
     await waitFor(`document.querySelectorAll("#step-badges .badge")[2].classList.contains("current")`, "やり直した後の、右手から始める", 8000).catch(() => {});

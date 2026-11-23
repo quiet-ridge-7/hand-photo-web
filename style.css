@@ -83,3 +83,6 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 #shot-banner-title { font-size: clamp(2.4rem, 11vw, 4.4rem); font-weight: 800; line-height: 1.15; }
 #shot-banner-item { font-size: clamp(1.5rem, 6.5vw, 2.4rem); font-weight: 700; line-height: 1.2; }
 #shot-banner-next { margin-top: 0.3em; font-size: clamp(1.1rem, 4.5vw, 1.6rem); opacity: 0.95; }
+
+/* 「最初から、撮り直す」を、1回押した後(もう一度押すと、消える) */
+.btns button.danger { background: #b42318; border-color: #f04438; color: #fff; font-weight: 700; }

@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v32";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v33";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -35,6 +35,7 @@ const state = {
   shots: STEPS.map(() => null),   // 撮れた写真: { blob, url, filename, w, h } | null
   lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
   lastFrame: null,
+  resetArmed: false,       // 「最初から、撮り直す」を、1回、押した状態(もう一度、押すと、消える)
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
   otherCount: 0,           // 次に撮る手と、逆の手が、続けて映ったコマ数
@@ -427,19 +428,37 @@ function retake(i) {
   $("seq-note").textContent = STEPS[i].label + "を、撮り直します。";
 }
 
+// 最初から、撮り直す: 確認は、ブラウザの確認の窓(confirm)ではなく、ボタンの、2回押し(iPhone で、確認の窓の後に、映像が、止まるため)
+let resetArmTimer = null;
+function disarmReset() {
+  state.resetArmed = false;
+  clearTimeout(resetArmTimer);
+  $("reset-all").textContent = "最初から、撮り直す";
+  $("reset-all").classList.remove("danger");
+}
 function resetAll() {
-  if (!state.shots.some(Boolean)) return;
-  if (!window.confirm("撮った写真を、全部、消して、最初から撮り直します。(保存していない写真は、戻せません)よろしいですか?")) return;
+  if (!state.shots.some(Boolean)) { disarmReset(); return; }
+  if (!state.resetArmed) {   // 1回目: ボタンの文字を変えて、もう一度、押すと、消えると、知らせる(4秒で、元に戻る)
+    state.resetArmed = true;
+    $("reset-all").textContent = "もう一度、押すと、全部、消えます";
+    $("reset-all").classList.add("danger");
+    clearTimeout(resetArmTimer);
+    resetArmTimer = setTimeout(disarmReset, 4000);
+    return;
+  }
+  disarmReset();
   for (const s of state.shots) freeShot(s);
   state.shots = STEPS.map(() => null);
   state.step = 0;
   state.userPicked = false;
   state.otherCount = 0;
   state.cooldownUntil = 0;
+  $("shot-banner").hidden = true;
   applyMode();
   renderModeHelp();
   renderSteps();
   $("seq-note").textContent = "最初から、撮り直します。";
+  video.play().catch(() => {});   // 映像が、止まっていたら、動かす
 }
 
 // 爪の写真を、拡大して、見る(どこかを押すと、閉じる。Esc でも、閉じる。左右の矢印キーと、「前へ / 次へ」で、5本を、順に)
