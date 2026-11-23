@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v37";
+export const VERSION = "v39";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -60,9 +60,9 @@ export function bbox(lm) {
 // ---- 手の形のガイドと、一致した面積 ----
 // ガイドの手(正面向きの、指を開いた手)と、いまの手を、「太らせた骨組み」(手のひらの多角形 + 指の太い線)の形にして、重なりの面積を比べる。
 //   どちらも、同じ作り方なので、輪郭の細かさの、違いは出ない(粗い形どうしの比べ)。 リアルタイムで動く(分割モデルは、使わない)。
-export const SIL = { finger: 0.11, thumb: 0.14, palm: 0.08 };   // 線の半径 = 手のひらの幅(5〜17)× この値
+export const SIL = { finger: 0.11, thumb: 0.14, palm: 0.11 };   // 線の半径 = 手のひらの幅(5〜17)× この値
 export const GUIDE_FILL = 0.8;                                   // ガイドの手の大きさ(手首〜指先の長さ ÷ 画面の短い辺)。 横長の画面(PC)
-export const GUIDE_TILT_DEG = 15;                                // ガイドの、傾き(度)。 腕の角度に合わせる: 左手は、右へ。 右手は、左へ(画面で見て)
+export const GUIDE_TILT_DEG = 30;                                // ガイドの、傾き(度)。 腕の角度に合わせる: 左手は、右へ。 右手は、左へ(画面で見て)。 30度
 export const GUIDE_FILL_PORTRAIT = 0.95;                         // 縦長の画面(スマホ): 縦に余りがあるので、大きく(幅の中に、収まる範囲)
 export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
   [1, 2, "thumb"], [2, 3, "thumb"], [3, 4, "thumb"],
@@ -73,8 +73,8 @@ export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
 export const PALM_POLY = [0, 1, 5, 9, 13, 17];
 
 // 小指の下の、手のひらの、ふくらみ(小指側の、丸み)。 手首(0)と小指の付け根(17)を結ぶ辺を、外へ、ゆるく、ふくらませる。
-//   辺の上に、円を、n 個、並べる(辺の真ん中で、いちばん外へ。 外へのずれ = 手のひらの幅 × out × sin)。 円の半径は、手のひらの辺の太さ(SIL.palm)と、同じ。
-export const SIL_BULGE = { n: 9, out: 0.13 };
+//   辺の上に、円を、n 個、並べる(辺の真ん中で、いちばん外へ。 外へのずれ = 手のひらの幅 × out × sin)。 円の半径は、小指の付け根の側では、小指の太さ(SIL.finger)、手首の側では、手のひらの辺の太さ(SIL.palm)へ、なめらかに、細くする(段差を作らない)。 円を、細かく、並べて、ギザギザにしない。
+export const SIL_BULGE = { n: 25, out: 0.10, pow: 1 };   // pow: ふくらみの形(1 = sin。小さいほど、小指の付け根の側から、早く、ふくらむ)
 // P: 手の点(21個。x, y)。 戻り値: [{ x, y, r }](ガイドの絵と、形の地図の、両方で、同じ円を使う)
 export function silDisks(P) {
   const palmW = dist(P[5], P[17]);
@@ -87,8 +87,8 @@ export function silDisks(P) {
   if ((mid.x - cen.x) * n.x + (mid.y - cen.y) * n.y < 0) n = { x: -n.x, y: -n.y };   // 手のひらの、外へ
   const out = [];
   for (let k = 1; k <= SIL_BULGE.n; k++) {
-    const s = k / (SIL_BULGE.n + 1), off = SIL_BULGE.out * palmW * Math.sin(Math.PI * s);
-    out.push({ x: a.x + e.x * s + n.x * off, y: a.y + e.y * s + n.y * off, r: SIL.palm * palmW });
+    const s = k / (SIL_BULGE.n + 1), off = SIL_BULGE.out * palmW * Math.pow(Math.sin(Math.PI * s), SIL_BULGE.pow);
+    out.push({ x: a.x + e.x * s + n.x * off, y: a.y + e.y * s + n.y * off, r: (SIL.palm + (SIL.finger - SIL.palm) * (1 - s)) * palmW });
   }
   return out;
 }

@@ -178,7 +178,7 @@ try {
   if (got) {
     check("S3 撮れた項目に、写真(blob)の小さな絵と、『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 1 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
     check("S3b 撮れて、次の項目に移ると、左上の表示も、変わる(『撮影中: 左手の甲』)", /^撮影中: 左手の甲$/.test(await text("#now-label")), await text("#now-label"));
-    check("S3s 撮れた直後に、「撮れました」が、映像の真ん中に、大きく出る(撮れました / 左手のひら / 次は、左手の甲)。文字は、大きい(30px 以上)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-title")) === "撮れました" && (await text("#shot-banner-item")) === "左手のひら" && (await text("#shot-banner-next")) === "次は、左手の甲" && (await ev(`parseFloat(getComputedStyle(document.getElementById("shot-banner-title")).fontSize) >= 30`)), await text("#shot-banner"));
+    check("S3s 撮れた直後に、「撮れました。 / 次は、左手の甲」だけが、映像の真ん中に、大きく出る(項目の名前の行は、無い)。文字は、大きい(30px 以上)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-title")) === "撮れました。" && (await text("#shot-banner-next")) === "次は、左手の甲" && !(await ev(`!!document.getElementById("shot-banner-item")`)) && (await ev(`parseFloat(getComputedStyle(document.getElementById("shot-banner-title")).fontSize) >= 30`)), await text("#shot-banner"));
     check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
     await waitFor(`document.getElementById("shot-banner").hidden`, "大きな表示が、消える", 8000).catch(() => {});
     check("S3t 「撮れました」の大きな表示は、約3秒で、消える(そのあと、撮影の邪魔にならない)", await ev(`document.getElementById("shot-banner").hidden`));
@@ -215,7 +215,7 @@ try {
     await setHand({ hand: "right", facing: "back", scale: 0.8 });
     let g4 = true; try { await waitDone(3, "右手の甲"); } catch { g4 = false; await diag(); }
     check("S9 右手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『保存(14枚。全体の写真 4 + 爪 10)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "保存(14枚)", await guide());
-    check("S9s 4つ目が撮れた直後は、大きな表示の、3行目が『4つ、全部、撮れました』(右手の甲)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-item")) === "右手の甲" && (await text("#shot-banner-next")) === "4つ、全部、撮れました", await text("#shot-banner"));
+    check("S9s 4つ目が撮れた直後は、大きな表示が『4つ、全部、撮れました。』だけ(次の行は、無い)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-title")) === "4つ、全部、撮れました。" && (await ev(`document.getElementById("shot-banner-next").hidden`)), await text("#shot-banner"));
     await ev(`window.__handNow = null; true`);
     await sleep(500);
     check("S9a 全部、撮れたら、左上の表示は、『全部、撮れました』(緑)", (await text("#now-label")) === "全部、撮れました" && (await ev(`document.getElementById("now-label").classList.contains("done")`)), await text("#now-label"));
@@ -279,10 +279,10 @@ try {
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: gTilt.tilt });
   let gtp = { n: 0 };
   for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && gtp.g - gtp.r > 50) break; await sleep(100); }
-  check("T1 ガイドは、標準で、腕の角度に合わせて、傾く(前面カメラ=鏡で、元の映像では、左手は、左へ 15度)。同じ傾きの手を重ねると、ガイドは、緑", gTilt.tilt === -GUIDE_TILT_DEG && gtp.n > 50 && gtp.g - gtp.r > 50, JSON.stringify([gTilt.tilt, gtp]));
+  check("T1 ガイドは、標準で、腕の角度に合わせて、傾く(前面カメラ=鏡で、元の映像では、左手は、左へ 30度)。同じ傾きの手を重ねると、ガイドは、緑", gTilt.tilt === -GUIDE_TILT_DEG && gtp.n > 50 && gtp.g - gtp.r > 50, JSON.stringify([gTilt.tilt, gtp]));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: -gTilt.tilt });
   for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20) break; await sleep(100); }
-  check("T2 逆に傾けた手(30度ずれ)では、ガイドは、白(重なっていない)", gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20, JSON.stringify(gtp));
+  check("T2 逆に傾けた手(60度ずれ)では、ガイドは、白(重なっていない)", gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20, JSON.stringify(gtp));
 
   // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
   const place = () => ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; }; return { stage: r("stage"), checks: r("checks"), numbers: r("numbers-text"), open: document.getElementById("numbers").open, vw: window.innerWidth }; })()`);

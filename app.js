@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v37";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v39";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -364,9 +364,10 @@ function loop() {
 // ---- 「撮れました」の、大きな表示(映像の、真ん中) ----
 let bannerTimer = null;
 function showShotBanner(step, next) {
-  $("shot-banner-title").textContent = "撮れました";
-  $("shot-banner-item").textContent = step.label;
-  $("shot-banner-next").textContent = next ? "次は、" + next.label : "4つ、全部、撮れました";
+  // 「撮れました。次は、左手の甲」だけ(2行)。 4つ全部、撮れた時は、「4つ、全部、撮れました。」
+  $("shot-banner-title").textContent = next ? "撮れました。" : "4つ、全部、撮れました。";
+  $("shot-banner-next").textContent = next ? "次は、" + next.label : "";
+  $("shot-banner-next").hidden = !next;
   $("shot-banner").hidden = false;
   clearTimeout(bannerTimer);
   bannerTimer = setTimeout(() => { $("shot-banner").hidden = true; }, COOLDOWN_MS + 600);
