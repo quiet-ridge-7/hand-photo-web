@@ -22,9 +22,11 @@ const failures = [];
 const check = (name, cond, detail = "") => { console.log((cond ? "OK " : "NG ") + name + (cond ? "" : "  <- " + detail)); if (!cond) failures.push(name); };
 
 const requested = [];
+let probeValue = 1;   // 試験用: 『10分、覚えさせる』返事の中身(サービスワーカーが、覚えを使わず、確かめ直すかを、見る)
 const server = http.createServer((req, res) => {
   const name = decodeURIComponent(new URL(req.url, "http://x").pathname);
   requested.push(name);
+  if (name === "/_probe.txt") { res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "max-age=600" }); res.end(String(probeValue)); return; }
   const file = path.join(ROOT, name === "/" ? "index.html" : name);
   if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end("not found"); return; }
   res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
@@ -331,6 +333,11 @@ try {
   await sleep(800);
   const heavy = await ev(`(async () => { const c = await caches.open("hand-photo-web-heavy-v1"); return (await c.keys()).map((r) => new URL(r.url).pathname); })()`);
   check("C5 2回目の読み込みで、大きな物(手のモデル、MediaPipe の部品)も、覚える(別の箱)", heavy.includes("/models/hand_landmarker.task") && heavy.includes("/lib/mediapipe/vision_bundle.mjs") && heavy.some((n) => n.endsWith(".wasm")), JSON.stringify(heavy));
+  // GitHub Pages のように、「10分、覚えていてよい」と言うサーバーでも、コードは、すぐ、新しくなる(サービスワーカーが、毎回、確かめ直す)
+  const probe1 = await ev(`navigator.serviceWorker.controller ? fetch("_probe.txt").then((r) => r.text()) : "(サービスワーカーが、動いていない)"`);
+  probeValue = 2;
+  const probe2 = await ev(`fetch("_probe.txt").then((r) => r.text())`);
+  check("C5b 『10分、覚えていてよい』と言うサーバーでも、サービスワーカーが、毎回、確かめ直すので、変更が、すぐ、見える(1回目 1 → サーバーが 2 に変わった後、2)", probe1 === "1" && probe2 === "2", JSON.stringify([probe1, probe2]));
   // ネットを切って(オフライン)、開く: 覚えた物だけで、動く
   await send("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   await load("");

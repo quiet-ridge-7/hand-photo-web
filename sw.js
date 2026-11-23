@@ -36,5 +36,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== location.origin) return;   // 外のサイト、GET 以外は、触らない
   const isHeavy = url.pathname.includes("/lib/") || url.pathname.includes("/models/");   // 大きな物か
-  event.respondWith(isHeavy ? cacheFirst(event.request) : fetch(event.request).catch(() => caches.match(event.request)));
+  // コードは、ブラウザの覚え(HTTP キャッシュ。GitHub Pages は、10分)を、使わず、毎回、サーバーに、確かめる(変わっていなければ、軽い返事だけ)。 これで、公開した変更が、すぐ、反映される
+  event.respondWith(isHeavy ? cacheFirst(event.request) : fetch(event.request, { cache: "no-cache" }).catch(() => caches.match(event.request)));
 });
