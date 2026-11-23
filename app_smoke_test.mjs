@@ -9,7 +9,7 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeHand } from "./test_hands.mjs";
-import { fingertipRects } from "./guide.mjs";
+import { fingertipRects, makeGuide, GUIDE_TILT_DEG } from "./guide.mjs";
 
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -96,7 +96,7 @@ try {
   const sizeAfterA = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
 
   // ---- B. 人工の手 ----
-  await load("?fake=1");   // 4つの撮影は、いつも、オン(自動の撮影の流れも、この画面で、確かめる)
+  await load("?fake=1&tilt=0");   // (傾き 0 で、開く: ガイドの傾きは、別に、確かめる)4つの撮影は、いつも、オン(自動の撮影の流れも、この画面で、確かめる)
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備", 20000);
   const V = await ev(`({ w: document.getElementById("video").videoWidth, h: document.getElementById("video").videoHeight })`);
   const setHand = (opts) => { const hnd = makeHand({ ...opts, frame: V }); return ev(`window.__handNow = ${JSON.stringify({ landmarks: hnd.lm, label: hnd.label })}; true`); };
@@ -255,7 +255,7 @@ try {
   }
 
   // 撮影を切る(?capture=0): 条件がそろっても、撮らない。検出は、続く。「撮影」ボタンも、無い
-  await load("?fake=1&capture=0");
+  await load("?fake=1&capture=0&tilt=0");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オフ)", 20000);
   check("B22a ?capture=0 では、「撮影」ボタンが、隠れている", await ev(`document.getElementById("shoot").hidden`));
   await setHand({ hand: "left", facing: "palm", scale: 0.8 });
@@ -268,6 +268,16 @@ try {
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
   await load("?fake=1");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(撮影オン)", 20000);
+
+  // ガイドの傾き(腕の角度): 標準で、傾く(左手は、画面で見て、右へ。 前面カメラ=鏡の、元の映像では、左へ)。 傾けた手(同じ傾き)なら、緑。 逆に傾けた手は、白
+  const gTilt = makeGuide(V, { hand: "left", facing: "palm", tilt: GUIDE_TILT_DEG, mirror: true });   // この試験の画面は、前面カメラ(鏡)
+  await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: gTilt.tilt });
+  let gtp = { n: 0 };
+  for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && gtp.g - gtp.r > 50) break; await sleep(100); }
+  check("T1 ガイドは、標準で、腕の角度に合わせて、傾く(前面カメラ=鏡で、元の映像では、左手は、左へ 15度)。同じ傾きの手を重ねると、ガイドは、緑", gTilt.tilt === -GUIDE_TILT_DEG && gtp.n > 50 && gtp.g - gtp.r > 50, JSON.stringify([gTilt.tilt, gtp]));
+  await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: -gTilt.tilt });
+  for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20) break; await sleep(100); }
+  check("T2 逆に傾けた手(30度ずれ)では、ガイドは、白(重なっていない)", gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20, JSON.stringify(gtp));
 
   // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
   const place = () => ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; }; return { stage: r("stage"), checks: r("checks"), numbers: r("numbers-text"), open: document.getElementById("numbers").open, vw: window.innerWidth }; })()`);

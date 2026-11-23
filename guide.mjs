@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v34";
+export const VERSION = "v35";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -62,6 +62,7 @@ export function bbox(lm) {
 //   どちらも、同じ作り方なので、輪郭の細かさの、違いは出ない(粗い形どうしの比べ)。 リアルタイムで動く(分割モデルは、使わない)。
 export const SIL = { finger: 0.11, thumb: 0.14, palm: 0.08 };   // 線の半径 = 手のひらの幅(5〜17)× この値
 export const GUIDE_FILL = 0.8;                                   // ガイドの手の大きさ(手首〜指先の長さ ÷ 画面の短い辺)。 横長の画面(PC)
+export const GUIDE_TILT_DEG = 15;                                // ガイドの、傾き(度)。 腕の角度に合わせる: 左手は、右へ。 右手は、左へ(画面で見て)
 export const GUIDE_FILL_PORTRAIT = 0.95;                         // 縦長の画面(スマホ): 縦に余りがあるので、大きく(幅の中に、収まる範囲)
 export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
   [1, 2, "thumb"], [2, 3, "thumb"], [3, 4, "thumb"],
@@ -161,15 +162,25 @@ export function maskIoU(a, b) {
 }
 
 // ガイドの手(正面向き・指を開いた手)の点と形。 hand: 本当の手 "right" | "left"、facing: カメラに向く側 "palm" | "back"。 画面の真ん中に、大きさ GUIDE_FILL で置く。
-export function makeGuide(frame, { hand = "right", facing = "palm", spread = 12 } = {}) {
+export function makeGuide(frame, { hand = "right", facing = "palm", spread = 12, tilt = 0, mirror = false } = {}) {
   const flipX = (hand === "left") !== (facing === "back");
   const fill = frame.h > frame.w ? GUIDE_FILL_PORTRAIT : GUIDE_FILL;   // 縦長の画面は、大きく
   const S = (fill * Math.min(frame.w, frame.h)) / 0.74;
-  const pts = templatePoints(spread).map((p) => ({ x: (flipX ? -p.x : p.x) * S, y: p.y * S }));
-  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const flat = templatePoints(spread).map((p) => ({ x: (flipX ? -p.x : p.x) * S, y: p.y * S }));
+  // 腕の角度に合わせた、傾き。 手首(原点)を、中心に、回す。 時計回りが、プラス(指先が、画面の右へ)。
+  //   左手は、右へ(+)、右手は、左へ(-)。 前面カメラ(鏡のように映す)の時は、画面で見た向きを、合わせるため、元の映像では、逆向き。
+  const signed = tilt * (hand === "left" ? 1 : -1) * (mirror ? -1 : 1);
+  const co = Math.cos((signed * Math.PI) / 180), si = Math.sin((signed * Math.PI) / 180);
+  let pts = flat.map((p) => ({ x: p.x * co - p.y * si, y: p.x * si + p.y * co }));
+  // 傾けて、はみ出さないように、必要なら、小さくする(手の点の枠が、画面の 9割まで)
+  let xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const k = Math.min(1, (0.9 * frame.w) / (Math.max(...xs) - Math.min(...xs)), (0.9 * frame.h) / (Math.max(...ys) - Math.min(...ys)));
+  pts = pts.map((p) => ({ x: p.x * k, y: p.y * k }));
+  xs = pts.map((p) => p.x);
+  ys = pts.map((p) => p.y);
   const ox = frame.w / 2 - (Math.min(...xs) + Math.max(...xs)) / 2, oy = frame.h / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
   const lm = pts.map((p) => ({ x: (p.x + ox) / frame.w, y: (p.y + oy) / frame.h, z: 0 }));
-  return { lm, sil: silhouetteMask(lm, frame), hand, facing };
+  return { lm, sil: silhouetteMask(lm, frame), hand, facing, tilt: signed };
 }
 
 // いまの手を、手首(0)と中指の付け根(9)が、ガイドと同じ位置・向き・大きさになるように、動かして・回して・拡大縮小する(形だけを、比べるため)

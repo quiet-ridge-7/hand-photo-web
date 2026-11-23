@@ -25,12 +25,13 @@ function canonicalPts(spread, curl) {
 //   hand: "right" | "left"(本当の手)  facing: "palm" | "back"(カメラに向いている側)  指は、上向き。
 //   scale: 手の大きさ(画面の短い辺に対する、手首〜中指の先の、長さの、おおよその割合)
 //   spread: となり合う指の、開き(度)  tilt: 手の幅の、縮み(1 = まっすぐ。小さいほど、傾いている)  curl: 曲げる指の番号(0〜3)
-//   cx, cy: 手の枠の、中心(0〜1)
-export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread = 12, tilt = 1, curl = null, cx = 0.5, cy = 0.5, frame = FRAME } = {}) {
+//   cx, cy: 手の枠の、中心(0〜1)  rot: 手首を中心に、時計回りに、回す角度(度。指先が、画面の右へ、傾くのが、プラス)
+export function makeHand({ hand = "right", facing = "palm", scale = 0.8, spread = 12, tilt = 1, curl = null, cx = 0.5, cy = 0.5, rot = 0, frame = FRAME } = {}) {
   const pts = canonicalPts(spread, curl);
   const flipX = (hand === "left") !== (facing === "back");
   const S = scale * Math.min(frame.w, frame.h) / 0.74;
   let px = pts.map((p) => ({ x: (flipX ? -p.x : p.x) * tilt * S, y: p.y * S }));
+  if (rot) { const co = Math.cos((rot * Math.PI) / 180), si = Math.sin((rot * Math.PI) / 180); px = px.map((p) => ({ x: p.x * co - p.y * si, y: p.x * si + p.y * co })); }   // 手首(原点)を中心に、時計回りに、rot 度
   const xs = px.map((p) => p.x), ys = px.map((p) => p.y);
   const ox = cx * frame.w - (Math.min(...xs) + Math.max(...xs)) / 2, oy = cy * frame.h - (Math.min(...ys) + Math.max(...ys)) / 2;
   const lm = px.map((p) => ({ x: (p.x + ox) / frame.w, y: (p.y + oy) / frame.h, z: 0 }));

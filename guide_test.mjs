@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, silDisks, SIL_BULGE, SIL, PALM_POLY } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, GUIDE_TILT_DEG, silDisks, SIL_BULGE, SIL, PALM_POLY } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -364,6 +364,31 @@ test("ガイドの形: 小指の下の、手のひらが、丸い(外へ、ふ�
   SIL_BULGE.n = saved;
   assert.ok(g.sil.area > flat, "ふくらみの分、面積が、増える");
   assert.ok(guideMatch(g.lm, g, FRAME).overlap > 0.999);
+});
+
+// ---- ガイドの傾き(腕の角度) ----
+test("ガイドの傾き: 左手は、右へ(時計回り)、右手は、左へ(画面で見て)。前面カメラ(鏡)の時は、元の映像では、逆。傾き 0 は、傾けない。回した角度は、指定した角度と、同じ", () => {
+  const ang = (g) => { const w = g.lm[0], m = g.lm[9]; return (Math.atan2((m.x - w.x) * FRAME.w, -((m.y - w.y) * FRAME.h)) * 180) / Math.PI; };   // 指の向き(真上から、右へ傾いた角度)
+  const base = (h, f) => ang(makeGuide(FRAME, { hand: h, facing: f }));
+  for (const [o, want] of [[{ hand: "left", facing: "palm", tilt: 15 }, 15], [{ hand: "right", facing: "palm", tilt: 15 }, -15], [{ hand: "left", facing: "palm", tilt: 15, mirror: true }, -15], [{ hand: "right", facing: "back", tilt: 15, mirror: true }, 15], [{ hand: "left", facing: "palm", tilt: 0 }, 0]]) {
+    const g = makeGuide(FRAME, o);
+    assert.equal(g.tilt, want);
+    assert.ok(near(ang(g) - base(o.hand, o.facing), want, 0.01), JSON.stringify(o) + " " + (ang(g) - base(o.hand, o.facing)));
+  }
+  assert.equal(GUIDE_TILT_DEG, 15);
+});
+test("ガイドの傾き: 傾けても、画面(横長・縦長)の中に収まり、真ん中。傾き 0 の時は、これまでと、同じ(小さくしない)。傾けた手と、同じ傾きの手は、形がそろう(形だけ 97%以上)。逆に傾けた手は、そろいが、下がる", () => {
+  for (const F of [FRAME, PORTRAIT]) {
+    for (const hand of ["left", "right"]) {
+      const g = makeGuide(F, { hand, facing: "palm", tilt: GUIDE_TILT_DEG }), b = bbox(g.lm);
+      assert.ok(b.minX > 0.04 && b.maxX < 0.96 && b.minY > 0.04 && b.maxY < 0.96 && near(b.cx, 0.5, 0.01) && near(b.cy, 0.5, 0.01), F.w + " " + hand + " " + JSON.stringify([b.minX, b.maxX, b.minY, b.maxY]));
+      const flat = makeGuide(F, { hand, facing: "palm" });
+      assert.ok(near(handSize(flat.lm, F), F.h > F.w ? 0.95 : 0.798, 0.01), "傾き 0 は、小さくしない");
+      const same = guideMatch(makeHand({ hand, facing: "palm", frame: F, rot: g.tilt }).lm, g, F), opp = guideMatch(makeHand({ hand, facing: "palm", frame: F, rot: -g.tilt }).lm, g, F);
+      assert.ok(same.shape > 0.97, F.w + " " + hand + " " + same.shape);
+      assert.ok(opp.overlap < same.overlap - 0.15, F.w + " " + hand + " " + JSON.stringify([same.overlap, opp.overlap]));
+    }
+  }
 });
 
 // ---- 続ける時間 ----

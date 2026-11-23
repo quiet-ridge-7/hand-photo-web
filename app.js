@@ -2,9 +2,9 @@
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 //   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v34";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v35";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -15,6 +15,7 @@ const stage = $("stage");
 // 4つの撮影は、いつも、オン。 アドレスの末尾に ?capture=0 を付けて開くと、自動の撮影も、「撮影」ボタンも、オフ(試験用)
 const params = new URLSearchParams(window.location.search);
 const SEQ_CAPTURE = params.get("capture") !== "0";
+const GUIDE_TILT = params.has("tilt") && Number.isFinite(Number(params.get("tilt"))) ? Number(params.get("tilt")) : GUIDE_TILT_DEG;   // ガイドの傾き(度)。 試験用に、?tilt=0 で、傾けない
 const COOLDOWN_MS = 2000;   // 1つ撮った後、次を、撮り始めるまでの、間
 const SWITCH_FRAMES = 8;    // まだ1枚も撮っていない時に、逆の手が、これだけ続けて映ったら、その手から始める(コマ数。約0.3秒)
 
@@ -199,7 +200,7 @@ function measureImage(lm, vw, vh) {
 const guideCache = { key: "", canvas: null };
 function drawGuide(guide, matched) {
   const w = overlay.width, h = overlay.height;
-  const key = [w, h, guide.hand, guide.facing, matched].join();
+  const key = [w, h, guide.hand, guide.facing, guide.tilt, matched].join();
   if (guideCache.key !== key) {
     const cv = document.createElement("canvas");
     cv.width = w;
@@ -317,8 +318,9 @@ function loop() {
   const step = curStep();   // 次に撮る物(全部、撮れたら null)
   let guide = null;
   if (step) {   // 手の形のガイド: 次に撮る物(手の左右・手のひら / 甲)の形
-    const gk = [vw, vh, step.hand, step.mode].join();
-    if (!state.guide || state.guide.key !== gk) state.guide = { key: gk, g: makeGuide(frame, { hand: step.hand, facing: step.mode }) };
+    const mirror = state.facingMode === "user";   // 前面カメラは、鏡のように映す(傾きの向きを、画面で見た向きに、合わせる)
+    const gk = [vw, vh, step.hand, step.mode, GUIDE_TILT, mirror].join();
+    if (!state.guide || state.guide.key !== gk) state.guide = { key: gk, g: makeGuide(frame, { hand: step.hand, facing: step.mode, tilt: GUIDE_TILT, mirror }) };
     guide = state.guide.g;
   }
   const gm = guide && lm ? guideMatch(lm, guide, frame, false) : null;   // 一致(そのまま)だけ。ガイドの色(緑 / 白)に使う
