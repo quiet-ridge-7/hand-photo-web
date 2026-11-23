@@ -76,3 +76,10 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 #lightbox .lb-btns { display: flex; gap: 12px; }
 #lightbox .lb-btns button { padding: 10px 22px; font-size: 1rem; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
 #lightbox .lb-hint { margin: 0; color: var(--sub); font-size: 0.85rem; }
+
+/* 「撮れました」の、大きな表示(映像の、真ん中。撮った後、約3秒) */
+#shot-banner { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 3; min-width: 62%; padding: 0.5em 1em 0.6em; text-align: center; background: rgba(20, 100, 70, 0.94); color: #fff; border: 3px solid #4cc38a; border-radius: 18px; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); pointer-events: none; }
+#shot-banner[hidden] { display: none; }
+#shot-banner-title { font-size: clamp(2.4rem, 11vw, 4.4rem); font-weight: 800; line-height: 1.15; }
+#shot-banner-item { font-size: clamp(1.5rem, 6.5vw, 2.4rem); font-weight: 700; line-height: 1.2; }
+#shot-banner-next { margin-top: 0.3em; font-size: clamp(1.1rem, 4.5vw, 1.6rem); opacity: 0.95; }

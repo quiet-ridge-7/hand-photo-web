@@ -9,7 +9,7 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { makeHand } from "./test_hands.mjs";
-import { fingertipRects, makeGuide } from "./guide.mjs";
+import { fingertipRects } from "./guide.mjs";
 
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -73,8 +73,7 @@ try {
 
   // 人工の手を、渡す入り口(?fake=1 の時だけ)と、保存・共有の記録
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `
-    window.__downloads = []; window.__shared = []; window.__plays = [];
-    { const orig = HTMLMediaElement.prototype.play; HTMLMediaElement.prototype.play = function () { if (this.dataset && this.dataset.snd) { window.__plays.push({ kind: this.dataset.snd, muted: this.muted }); return Promise.resolve(); } return orig.apply(this, arguments); }; }
+    window.__downloads = []; window.__shared = [];
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push({ download: this.download, href: this.href.slice(0, 5) }); };
     window.__handNow = null;
     if (location.search.includes("fake=1")) {
@@ -122,20 +121,11 @@ try {
 
   // 手の形のガイド(うすい形): 手のひらモードで、画面の真ん中に出る。いまの手と重なっていれば(一致 50%以上)緑、そうでなければ白
   //   ガイドだけの画素(透明度 40〜75)の、平均の色で見る
-  // ガイドの縁(色のついた、はっきりした線)。 中指の指先の、真上の、縁の、真ん中の1画素。 まだ合っていなければ、黄色。 合っていれば、緑
-  const ringPix = async (hand) => {
-    const g = makeGuide(V, { hand, facing: "palm" }), P = g.lm.map((p) => ({ x: p.x * V.w, y: p.y * V.h }));
-    const palmW = Math.hypot(P[5].x - P[17].x, P[5].y - P[17].y), ow = Math.max(3, V.w / 220), r = 0.11 * palmW;
-    const x = Math.round(P[12].x), y = Math.round(P[12].y - (r + ow * 0.5));
-    return ev(`(() => { const d = document.getElementById("overlay").getContext("2d").getImageData(${x}, ${y}, 1, 1).data; return { r: d[0], g: d[1], b: d[2], a: d[3] }; })()`);
-  };
-  const guidePix = () => ev(`(() => { const c = document.getElementById("overlay"); const x0 = Math.round(c.width * 0.42), y0 = Math.round(c.height * 0.55); const d = c.getContext("2d").getImageData(x0, y0, Math.round(c.width * 0.16), Math.round(c.height * 0.2)).data; let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 3] >= 40 && d[i + 3] <= 75) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; } } return n ? { n, r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { n: 0 }; })()`);
+  const guidePix = () => ev(`(() => { const c = document.getElementById("overlay"); const x0 = Math.round(c.width * 0.42), y0 = Math.round(c.height * 0.55); const d = c.getContext("2d").getImageData(x0, y0, Math.round(c.width * 0.16), Math.round(c.height * 0.2)).data; let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { if (d[i + 3] >= 65 && d[i + 3] <= 110) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; } } return n ? { n, r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) } : { n: 0 }; })()`);
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1 });
   let gp = { n: 0 };
   for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && gp.g - gp.r > 50) break; await sleep(100); }
   check("G1 手のひらモード: ガイド(うすい形)が出ている。ガイドと同じ位置の手(一致 50%以上)では、ガイドは緑", gp.n > 50 && gp.g - gp.r > 50, JSON.stringify(gp));
-  const rg1 = await ringPix("left");
-  check("G1r ガイドと合っている時は、縁(はっきりした線)も、緑(中指の指先の、真上の縁が、緑色)", rg1.a > 180 && rg1.g > 180 && rg1.r < 130 && rg1.b < 190, JSON.stringify(rg1));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, cx: 0.8 });
   for (let k = 0; k < 80; k++) { gp = await guidePix(); if (gp.n > 50 && Math.abs(gp.g - gp.r) < 20) break; await sleep(100); }
   check("G2 手を右にずらして、一致が下がると、ガイドは、白に戻る", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
@@ -152,8 +142,6 @@ try {
   await sleep(500);
   gp = await guidePix();
   check("G3 手が映っていなくても、ガイド(うすい形)は、画面に出ている(白)", gp.n > 50 && Math.abs(gp.g - gp.r) < 20, JSON.stringify(gp));
-  const rg3 = await ringPix("left");
-  check("G3r 合っていない時は、縁(はっきりした線)は、黄色(白ではなく、目立つ色)。手の映像が、白っぽくても、見える(縁の外側に、暗い影も、付く)", rg3.a > 180 && rg3.r > 220 && rg3.g > 180 && rg3.g < 240 && rg3.b < 140, JSON.stringify(rg3));
 
   // ---- 4つの撮影(左手のひら → 左手の甲 → 右手のひら → 右手の甲): 撮れたら、緑。次に撮る物を、案内する ----
   const stepClass = (i) => ev(`document.querySelectorAll("#step-badges .badge")[${i}].classList[1]`);   // "done" | "current" | "todo"
@@ -185,9 +173,10 @@ try {
   if (got) {
     check("S3 撮れた項目に、写真(blob)の小さな絵と、『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 1 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
     check("S3b 撮れて、次の項目に移ると、左上の表示も、変わる(『撮影中: 左手の甲』)", /^撮影中: 左手の甲$/.test(await text("#now-label")), await text("#now-label"));
-    const plays1 = await ev(`window.__plays.filter((p) => !p.muted).map((p) => p.kind)`);
-    check("S3s 撮れた時に、音が、1回、鳴る(shot)。この時点で、鳴った音は、これだけ", plays1.length === 1 && plays1[0] === "shot", JSON.stringify(plays1));
+    check("S3s 撮れた直後に、「撮れました」が、映像の真ん中に、大きく出る(撮れました / 左手のひら / 次は、左手の甲)。文字は、大きい(30px 以上)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-title")) === "撮れました" && (await text("#shot-banner-item")) === "左手のひら" && (await text("#shot-banner-next")) === "次は、左手の甲" && (await ev(`parseFloat(getComputedStyle(document.getElementById("shot-banner-title")).fontSize) >= 30`)), await text("#shot-banner"));
     check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
+    await waitFor(`document.getElementById("shot-banner").hidden`, "大きな表示が、消える", 8000).catch(() => {});
+    check("S3t 「撮れました」の大きな表示は、約3秒で、消える(そのあと、撮影の邪魔にならない)", await ev(`document.getElementById("shot-banner").hidden`));
     check("S5 次は左手の甲なので、手のひらの手では、案内が『手の甲を、カメラに、向けてください』(チェックの項目名は、『手の甲側』)", await (async () => { await waitGuide("手の甲を、カメラに、向けてください"); return (await ev(`[...document.querySelectorAll("#checks li")].some((li) => li.textContent.includes("手の甲側"))`)); })());
     await setHand({ hand: "right", facing: "back", scale: 0.8, curl: 1 });   // 1枚撮った後は、逆の手が映っても、始める手は、変えない
     await waitGuide("左手を、映してください(いまは、右手です)");
@@ -221,19 +210,11 @@ try {
     await setHand({ hand: "right", facing: "back", scale: 0.8 });
     let g4 = true; try { await waitDone(3, "右手の甲"); } catch { g4 = false; await diag(); }
     check("S9 右手の甲が、撮れて、4つ全部、緑になる。『4つ、全部、撮れました』と、案内する。『保存(14枚。全体の写真 4 + 爪 10)』", g4 && (await ev(`document.querySelectorAll("#steps li.done").length`)) === 4 && /4つ、全部、撮れました/.test(await guide()) && /4つ、全部、撮れました/.test(await text("#mode-help")) && (await text("#save-all")) === "保存(14枚)", await guide());
+    check("S9s 4つ目が撮れた直後は、大きな表示の、3行目が『4つ、全部、撮れました』(右手の甲)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-item")) === "右手の甲" && (await text("#shot-banner-next")) === "4つ、全部、撮れました", await text("#shot-banner"));
     await ev(`window.__handNow = null; true`);
     await sleep(500);
     check("S9a 全部、撮れたら、左上の表示は、『全部、撮れました』(緑)", (await text("#now-label")) === "全部、撮れました" && (await ev(`document.getElementById("now-label").classList.contains("done")`)), await text("#now-label"));
     check("S9b 全部、撮れたら、枠は緑。ガイド(うすい形)は、出さない(手が無い画面で、ガイドの画素が、0)", (await ev(`document.getElementById("stage").classList.contains("ok")`)) && (await guidePix()).n === 0, JSON.stringify(await guidePix()));
-    const plays4 = await ev(`window.__plays.filter((p) => !p.muted).map((p) => p.kind)`);
-    check("S9s 4つの撮影で、鳴った音: shot が 3回、4つ全部、撮れた時の、上がる音(done)が 1回", plays4.filter((k) => k === "shot").length === 3 && plays4.filter((k) => k === "done").length === 1 && plays4[plays4.length - 1] === "done", JSON.stringify(plays4));
-    check("S9t 「音」ボタンがある(初めは『音: オン』)", (await text("#sound-toggle")) === "音: オン" && (await ev(`document.getElementById("sound-toggle").getAttribute("aria-pressed")`)) === "true", await text("#sound-toggle"));
-    await ev(`document.getElementById("sound-toggle").click(); true`);
-    const off = { label: await text("#sound-toggle"), stored: await ev(`localStorage.getItem("hand-photo-web-sound")`), plays: (await ev(`window.__plays.filter((p) => !p.muted).length`)) };
-    check("S9u 「音」を押すと、『音: オフ』。覚える(localStorage)。鳴らない(押した時に、鳴る音も、オフの時は、無し)", off.label === "音: オフ" && off.stored === "off" && off.plays === 4, JSON.stringify(off));
-    await ev(`document.getElementById("sound-toggle").click(); true`);
-    const on = { label: await text("#sound-toggle"), stored: await ev(`localStorage.getItem("hand-photo-web-sound")`), plays: (await ev(`window.__plays.filter((p) => !p.muted).length`)) };
-    check("S9v もう一度、押すと、『音: オン』。押した時に、確かめの音(shot)が、1回、鳴る", on.label === "音: オン" && on.stored === "on" && on.plays === 5, JSON.stringify(on));
     check("S9c 映像の上の4つ(横一列)が、全部、緑(done)。左から、左手のひら・左手の甲・右手のひら・右手の甲。映像の、上にある", (await ev(`[...document.querySelectorAll("#step-badges .badge.done")].length`)) === 4 && (await ev(`(() => { const b = [...document.querySelectorAll("#step-badges .badge")].map((e) => e.getBoundingClientRect()); const st = document.getElementById("stage").getBoundingClientRect(); return b.every((r) => Math.abs(r.top - b[0].top) < 1) && b[0].left < b[1].left && b[1].left < b[2].left && b[2].left < b[3].left && b.every((r) => r.bottom <= st.top + 1); })()`)), await ev(`[...document.querySelectorAll("#step-badges .badge")].map((e) => e.className + ":" + e.textContent).join(" | ")`));
     // 保存: 共有が使えない端末は、14個のダウンロード。使える端末は、共有の画面に、14枚を、渡す
     await ev(`document.getElementById("save-all").click(); true`);

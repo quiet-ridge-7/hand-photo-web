@@ -28,6 +28,11 @@
         <video id="video" autoplay muted playsinline></video>
         <canvas id="overlay"></canvas>
         <div id="now-label" aria-live="polite"></div>
+        <div id="shot-banner" hidden role="status" aria-live="assertive">
+          <div id="shot-banner-title"></div>
+          <div id="shot-banner-item"></div>
+          <div id="shot-banner-next"></div>
+        </div>
         <div id="guide" role="status" aria-live="polite">準備しています…</div>
       </div>
     </div>
@@ -38,9 +43,6 @@
         <div class="btns">
           <button type="button" id="save-all" class="primary" disabled>保存(0枚)</button>
           <button type="button" id="reset-all" disabled>最初から、撮り直す</button>
-        </div>
-        <div class="btns">
-          <button type="button" id="sound-toggle" aria-pressed="true">音: オン</button>
         </div>
         <p id="seq-note" class="sub"></p>
       </div>
