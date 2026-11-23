@@ -372,12 +372,12 @@ test("ガイドの形: 小指の下の、手のひらが、丸い(外へ、ふ�
 test("ガイドの傾き: 左手は、右へ(時計回り)、右手は、左へ(画面で見て)。前面カメラ(鏡)の時は、元の映像では、逆。傾き 0 は、傾けない。回した角度は、指定した角度と、同じ", () => {
   const ang = (g) => { const w = g.lm[0], m = g.lm[9]; return (Math.atan2((m.x - w.x) * FRAME.w, -((m.y - w.y) * FRAME.h)) * 180) / Math.PI; };   // 指の向き(真上から、右へ傾いた角度)
   const base = (h, f) => ang(makeGuide(FRAME, { hand: h, facing: f }));
-  for (const [o, want] of [[{ hand: "left", facing: "palm", tilt: 15 }, 15], [{ hand: "right", facing: "palm", tilt: 15 }, -15], [{ hand: "left", facing: "palm", tilt: 15, mirror: true }, -15], [{ hand: "right", facing: "back", tilt: 15, mirror: true }, 15], [{ hand: "left", facing: "palm", tilt: GUIDE_TILT_DEG }, 30], [{ hand: "left", facing: "palm", tilt: 0 }, 0]]) {
+  for (const [o, want] of [[{ hand: "left", facing: "palm", tilt: 15 }, 15], [{ hand: "right", facing: "palm", tilt: 15 }, -15], [{ hand: "left", facing: "palm", tilt: 15, mirror: true }, -15], [{ hand: "right", facing: "back", tilt: 15, mirror: true }, 15], [{ hand: "left", facing: "palm", tilt: GUIDE_TILT_DEG }, 40], [{ hand: "left", facing: "palm", tilt: 0 }, 0]]) {
     const g = makeGuide(FRAME, o);
     assert.equal(g.tilt, want);
     assert.ok(near(ang(g) - base(o.hand, o.facing), want, 0.01), JSON.stringify(o) + " " + (ang(g) - base(o.hand, o.facing)));
   }
-  assert.equal(GUIDE_TILT_DEG, 30);
+  assert.equal(GUIDE_TILT_DEG, 40);
 });
 test("ガイドの傾き: 傾けても、画面(横長・縦長)の中に収まり、真ん中。傾き 0 の時は、これまでと、同じ(小さくしない)。傾けた手と、同じ傾きの手は、形がそろう(形だけ 97%以上)。逆に傾けた手は、そろいが、下がる", () => {
   for (const F of [FRAME, PORTRAIT]) {

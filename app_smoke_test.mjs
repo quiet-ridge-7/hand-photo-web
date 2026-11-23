@@ -279,10 +279,10 @@ try {
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: gTilt.tilt });
   let gtp = { n: 0 };
   for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && gtp.g - gtp.r > 50) break; await sleep(100); }
-  check("T1 ガイドは、標準で、腕の角度に合わせて、傾く(前面カメラ=鏡で、元の映像では、左手は、左へ 30度)。同じ傾きの手を重ねると、ガイドは、緑", gTilt.tilt === -GUIDE_TILT_DEG && gtp.n > 50 && gtp.g - gtp.r > 50, JSON.stringify([gTilt.tilt, gtp]));
+  check("T1 ガイドは、標準で、腕の角度に合わせて、傾く(前面カメラ=鏡で、元の映像では、左手は、左へ 40度)。同じ傾きの手を重ねると、ガイドは、緑", gTilt.tilt === -GUIDE_TILT_DEG && gtp.n > 50 && gtp.g - gtp.r > 50, JSON.stringify([gTilt.tilt, gtp]));
   await setHand({ hand: "left", facing: "palm", scale: 0.8, curl: 1, rot: -gTilt.tilt });
   for (let k = 0; k < 80; k++) { gtp = await guidePix(); if (gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20) break; await sleep(100); }
-  check("T2 逆に傾けた手(60度ずれ)では、ガイドは、白(重なっていない)", gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20, JSON.stringify(gtp));
+  check("T2 逆に傾けた手(80度ずれ)では、ガイドは、白(重なっていない)", gtp.n > 50 && Math.abs(gtp.g - gtp.r) < 20, JSON.stringify(gtp));
 
   // 画面の並び: 広い画面(PC)は、映像の右に、チェックと数字。狭い画面(スマホ)は、1列
   const place = () => ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; }; return { stage: r("stage"), checks: r("checks"), numbers: r("numbers-text"), open: document.getElementById("numbers").open, vw: window.innerWidth }; })()`);

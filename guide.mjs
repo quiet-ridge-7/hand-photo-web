@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v39";
+export const VERSION = "v40";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -62,7 +62,7 @@ export function bbox(lm) {
 //   どちらも、同じ作り方なので、輪郭の細かさの、違いは出ない(粗い形どうしの比べ)。 リアルタイムで動く(分割モデルは、使わない)。
 export const SIL = { finger: 0.11, thumb: 0.14, palm: 0.11 };   // 線の半径 = 手のひらの幅(5〜17)× この値
 export const GUIDE_FILL = 0.8;                                   // ガイドの手の大きさ(手首〜指先の長さ ÷ 画面の短い辺)。 横長の画面(PC)
-export const GUIDE_TILT_DEG = 30;                                // ガイドの、傾き(度)。 腕の角度に合わせる: 左手は、右へ。 右手は、左へ(画面で見て)。 30度
+export const GUIDE_TILT_DEG = 40;                                // ガイドの、傾き(度)。 腕の角度に合わせる: 左手は、右へ。 右手は、左へ(画面で見て)。 40度
 export const GUIDE_FILL_PORTRAIT = 0.95;                         // 縦長の画面(スマホ): 縦に余りがあるので、大きく(幅の中に、収まる範囲)
 export const SIL_BONES = [   // [始め, 終わり, 半径の種類]
   [1, 2, "thumb"], [2, 3, "thumb"], [3, 4, "thumb"],
