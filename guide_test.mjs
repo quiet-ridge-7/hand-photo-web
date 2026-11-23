@@ -171,6 +171,15 @@ test("ガイド: 右手の手のひらと、左手の手のひらは、左右が
   assert.ok(near(b.cx, 0.5, 0.01) && near(b.cy, 0.5, 0.01) && b.minY > 0 && b.maxY < 1 && b.minX > 0 && b.maxX < 1);
   assert.ok(gr.sil.area > 500 && gr.sil.gh === Math.round(200 * 720 / 1280));
 });
+test("ガイドの大きさ: 横長の画面(PC)は、約 0.80。縦長の画面(スマホ)は、大きく、約 0.95。どちらも、画面の中に、収まり、真ん中", () => {
+  const land = makeGuide(FRAME, { hand: "right", facing: "palm" }), port = makeGuide(PORTRAIT, { hand: "right", facing: "palm" });
+  assert.ok(near(handSize(land.lm, FRAME), 0.798, 0.01) && near(handSize(port.lm, PORTRAIT), 0.95, 0.01), [handSize(land.lm, FRAME), handSize(port.lm, PORTRAIT)].join());
+  for (const g of [land, port]) { const b = bbox(g.lm); assert.ok(b.minX > 0.02 && b.maxX < 0.98 && b.minY > 0.02 && b.maxY < 0.98 && near(b.cx, 0.5, 0.01) && near(b.cy, 0.5, 0.01)); }
+  const pb = bbox(port.lm);
+  assert.ok(pb.w * PORTRAIT.w / PORTRAIT.w > 0.7 && pb.maxX - pb.minX < 0.9, "縦長の画面では、幅の 7 割以上、9 割未満");
+  assert.ok(handSize(port.lm, PORTRAIT) >= T.sizeMin && handSize(port.lm, PORTRAIT) <= T.sizeMax, "ガイドの手は、近さの範囲の中");
+  assert.ok(guideMatch(port.lm, port, PORTRAIT).overlap > 0.999);
+});
 test("ガイドとの一致: ガイドと同じ手は 100%。同じ形の手(makeHand の初期値)も、ほぼ 100%", () => {
   const g = makeGuide(FRAME, { hand: "right", facing: "palm" });
   const m = guideMatch(g.lm, g, FRAME);
