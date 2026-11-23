@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v36";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v37";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -37,6 +37,7 @@ const state = {
   lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
   lastFrame: null,
   resetArmed: false,       // 「最初から、撮り直す」を、1回、押した状態(もう一度、押すと、消える)
+  camToken: 0,             // カメラを、始め直した回数(古い、始めの結果を、捨てるため)
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
   otherCount: 0,           // 次に撮る手と、逆の手が、続けて映ったコマ数
@@ -155,27 +156,40 @@ function renderChecks(checks) {
 // ---- カメラ ----
 async function startCamera() {
   stopCamera();
+  const token = ++state.camToken;
   setStatus("カメラを準備しています…");
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     setStatus("このブラウザでは、カメラが使えません(https で開いているかを、確かめてください)。");
     return;
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false,
-    });
-    state.stream = stream;
-    video.srcObject = stream;
-    const mirror = state.facingMode === "user";   // 前面カメラは、鏡のように、映す
-    video.classList.toggle("mirror", mirror);
-    overlay.classList.toggle("mirror", mirror);
-    await video.play().catch(() => {});
-    setStatus("カメラが映っています");
-  } catch (e) {
-    const why = e && e.name === "NotAllowedError" ? "カメラの使用が、許可されていません(ブラウザの設定で、許可してください)" : e && e.name === "NotFoundError" ? "カメラが、見つかりません" : "カメラを使えませんでした(" + (e && e.name) + ")";
-    setStatus(why);
+  // 許可の確認の窓が、出たまま、答えが来ない時(6秒)に、案内を出す
+  const hint = setTimeout(() => {
+    if (token === state.camToken && !state.stream) setStatus("カメラの許可の確認が、出ていませんか?「許可」を選んでください。出ない時は、ページを、閉じて、開き直してください(iPhone は、設定 → Safari → カメラ も、確かめてください)。");
+  }, 6000);
+  // 画質の指定が、通らない時は、指定を、ゆるめて、やり直す(向きだけ → 何も、指定しない)
+  const tries = [
+    { video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+    { video: { facingMode: state.facingMode }, audio: false },
+    { video: true, audio: false },
+  ];
+  let stream = null, lastErr = null;
+  for (const c of tries) {
+    try { stream = await navigator.mediaDevices.getUserMedia(c); break; } catch (e) { lastErr = e; if (e && e.name === "NotAllowedError") break; }
   }
+  clearTimeout(hint);
+  if (token !== state.camToken) { if (stream) for (const t of stream.getTracks()) t.stop(); return; }   // 待っている間に、始め直した
+  if (!stream) {
+    const e = lastErr;
+    setStatus(e && e.name === "NotAllowedError" ? "カメラの使用が、許可されていません(ブラウザの設定で、許可してください)" : e && e.name === "NotFoundError" ? "カメラが、見つかりません" : "カメラを使えませんでした(" + (e && e.name) + ")");
+    return;
+  }
+  state.stream = stream;
+  video.srcObject = stream;
+  const mirror = state.facingMode === "user";   // 前面カメラは、鏡のように、映す
+  video.classList.toggle("mirror", mirror);
+  overlay.classList.toggle("mirror", mirror);
+  video.play().catch(() => {});   // 再生の答えを、待たない(iPhone で、答えが、来ない時にも、状態が、進むように)
+  setStatus("カメラが映っています");
 }
 
 function stopCamera() {

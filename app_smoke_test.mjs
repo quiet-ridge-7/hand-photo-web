@@ -78,6 +78,9 @@ try {
     window.__downloads = []; window.__shared = [];
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push({ download: this.download, href: this.href.slice(0, 5) }); };
     window.__handNow = null;
+    // カメラの許可の確認が、出たまま、答えが来ない場合(?gum=hang)と、画質の指定が、通らない場合(?gum=over。1回目だけ、失敗)の、再現
+    if (location.search.includes("gum=hang")) navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+    if (location.search.includes("gum=over")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); let n = 0; window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); if (n++ === 0) { const e = new Error("画質の指定が、通らない"); e.name = "OverconstrainedError"; return Promise.reject(e); } return orig(c); }; }
     if (location.search.includes("fake=1")) {
       window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
     }` });
@@ -302,6 +305,15 @@ try {
   const external = [...hosts].filter((h) => h !== "127.0.0.1:" + HTTP_PORT);
   check("B17 通信した先は、この画面の置き場所だけ(外のサイトへの、通信は、無い)", external.length === 0, JSON.stringify(external));
   check("B18 読み込んだのは、手のモデル(models/hand_landmarker.task)と、MediaPipe の部品だけ(顔のモデルなどは、無い)", requested.includes("/models/hand_landmarker.task") && !requested.some((n) => /face_/.test(n)), JSON.stringify(requested.filter((n) => /models|wasm/.test(n))));
+  // ---- カメラの始まり: 答えが来ない時の、案内と、画質の指定が通らない時の、やり直し ----
+  await load("?gum=hang");
+  await waitFor(`/許可の確認/.test(document.getElementById("status").textContent)`, "許可の確認の、案内", 12000).catch(() => {});
+  check("K1 カメラの許可の確認の答えが、来ない時(約6秒)に、『カメラの許可の確認が、出ていませんか?』と、案内が出る(『準備しています』のまま、止まらない)", /カメラの許可の確認が、出ていませんか/.test(await text("#status")), await text("#status"));
+  await load("?gum=over");
+  await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "画質を下げて、やり直す", 15000).catch(() => {});
+  const gumCalls = await ev(`window.__gumCalls`);
+  check("K2 画質の指定が通らなくても(1回目が失敗)、指定を、ゆるめて、やり直し、カメラが映る(2回目は、画質の指定なし・向きだけ)", /カメラが映っています/.test(await text("#status")) && gumCalls.length >= 2 && !/width/.test(gumCalls[1]), JSON.stringify(gumCalls));
+
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
   await load("");
   await waitFor(`document.readyState === "complete" && /手の検出の、準備ができました/.test(document.getElementById("status").textContent)`, "準備(PWA の確認)", 30000);
