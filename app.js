@@ -2,9 +2,9 @@
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 //   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, STEPS, nextStep, stepHelp, stepFileName, nailFileName, makeWav, SOUND_DEFS } from "./guide.mjs";
 
-const APP_VERSION = "v30";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v31";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -36,6 +36,7 @@ const state = {
   lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
   lastFrame: null,
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
+  soundOn: true,           // 撮れた時の音(「音」ボタンで、オン・オフ。覚えておく)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
   otherCount: 0,           // 次に撮る手と、逆の手が、続けて映ったコマ数
   justMsg: "",
@@ -200,33 +201,51 @@ function drawGuide(guide, matched) {
   const w = overlay.width, h = overlay.height;
   const key = [w, h, guide.hand, guide.facing, matched].join();
   if (guideCache.key !== key) {
-    const cv = document.createElement("canvas");
-    cv.width = w;
-    cv.height = h;
-    const c = cv.getContext("2d");
     const P = guide.lm.map((p) => ({ x: p.x * w, y: p.y * h }));
     const palmW = Math.hypot(P[5].x - P[17].x, P[5].y - P[17].y);
-    c.fillStyle = c.strokeStyle = matched ? "#4cc38a" : "#ffffff";
-    c.lineCap = "round";
-    c.lineJoin = "round";
-    c.beginPath();
-    PALM_POLY.forEach((i, k) => (k ? c.lineTo(P[i].x, P[i].y) : c.moveTo(P[i].x, P[i].y)));
-    c.closePath();
-    c.fill();
-    for (const [s, e, kind] of SIL_BONES) {
-      c.lineWidth = 2 * SIL[kind] * palmW;
-      c.beginPath();
-      c.moveTo(P[s].x, P[s].y);
-      c.lineTo(P[e].x, P[e].y);
-      c.stroke();
-    }
+    const ow = Math.max(3, w / 220);   // 縁の太さ(画素)
+    const layer = () => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+    // 太らせた骨組みの形を、grow(画素)だけ広げて、塗る(手のひらの多角形 + 指の太い線)
+    const shape = (ctx, grow, color) => {
+      ctx.fillStyle = ctx.strokeStyle = color;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      PALM_POLY.forEach((i, k) => (k ? ctx.lineTo(P[i].x, P[i].y) : ctx.moveTo(P[i].x, P[i].y)));
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = 2 * grow;
+      if (grow > 0) ctx.stroke();
+      for (const [s, e, kind] of SIL_BONES) {
+        ctx.lineWidth = 2 * SIL[kind] * palmW + 2 * grow;
+        ctx.beginPath();
+        ctx.moveTo(P[s].x, P[s].y);
+        ctx.lineTo(P[e].x, P[e].y);
+        ctx.stroke();
+      }
+    };
+    const ringOf = (grow, inner, color) => {   // 外側 grow の形から、内側 inner の形を、くり抜いた、輪
+      const l = layer(), c = l.getContext("2d");
+      shape(c, grow, color);
+      c.globalCompositeOperation = "destination-out";
+      shape(c, inner, "#000");
+      return l;
+    };
+    const fill = layer();
+    shape(fill.getContext("2d"), 0, matched ? "#4cc38a" : "#ffffff");
+    const shadow = ringOf(ow * 2.4, ow * 0.3, "#000000");   // 外側の、暗い縁(明るい背景でも、見える)
+    const ring = ringOf(ow, 0, matched ? "#3ddc84" : "#ffd84a");   // 色のついた、はっきりした縁(合っていれば、緑。まだなら、黄色)
+    const cv = layer(), cc = cv.getContext("2d");
+    cc.globalAlpha = 0.22;       // 中は、うすく(下の映像が、見える)
+    cc.drawImage(fill, 0, 0);
+    cc.globalAlpha = 0.5;
+    cc.drawImage(shadow, 0, 0);
+    cc.globalAlpha = 0.95;
+    cc.drawImage(ring, 0, 0);
     guideCache.key = key;
     guideCache.canvas = cv;
   }
-  octx.save();
-  octx.globalAlpha = 0.22;
   octx.drawImage(guideCache.canvas, 0, 0);
-  octx.restore();
 }
 
 // ---- 手の点を、重ねて描く ----
@@ -339,6 +358,41 @@ function loop() {
   if (state.hold.ready && step && SEQ_CAPTURE) captureStep("auto");
 }
 
+// ---- 撮れた時の音 ----
+// 音は、その場で、作る(音のファイルは、使わない)。 短い WAV を作り、<audio> で、鳴らす(iPhone の、消音スイッチの時も、鳴りやすい)。
+//   iPhone は、画面を、一度、タップするまで、音を出せない。 右の「音」ボタン(または、画面のどこかを、タップ)で、使えるようになる。
+const sounds = {};
+function getSound(kind) {
+  if (!sounds[kind]) {
+    const a = new Audio(URL.createObjectURL(makeWav(SOUND_DEFS[kind])));
+    a.preload = "auto";
+    a.dataset.snd = kind;
+    sounds[kind] = a;
+  }
+  return sounds[kind];
+}
+let soundUnlocked = false;
+function unlockSound() {   // 画面の操作(タップ)の中で、一度、無音で、再生して、あとから、鳴らせるようにする
+  if (soundUnlocked) return;
+  soundUnlocked = true;
+  for (const kind of Object.keys(SOUND_DEFS)) {
+    const a = getSound(kind);
+    a.muted = true;
+    a.play().then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { soundUnlocked = false; a.muted = false; });
+  }
+}
+function playSound(kind) {
+  if (!state.soundOn) return;
+  const a = getSound(kind);
+  try { a.currentTime = 0; } catch (e) { /* まだ、読み込み中 */ }
+  a.muted = false;
+  a.play().catch(() => { $("seq-note").textContent = "音を出すには、画面を、一度、タップしてください(右の「音」ボタンでも、使えます)。"; });
+}
+function renderSound() {
+  $("sound-toggle").textContent = "音: " + (state.soundOn ? "オン" : "オフ");
+  $("sound-toggle").setAttribute("aria-pressed", state.soundOn ? "true" : "false");
+}
+
 // ---- 4つの撮影: 撮る・保存・撮り直す ----
 const canvasBlob = async () => {
   const w = video.videoWidth, h = video.videoHeight;
@@ -397,6 +451,7 @@ async function captureStep(how) {
   const next = curStep();
   state.justMsg = "撮れました: " + step.label + (next ? "。次は、" + next.label + "です" : "。4つ、全部、撮れました");
   state.cooldownUntil = performance.now() + COOLDOWN_MS;
+  playSound(next ? "shot" : "done");   // 撮れた音(4つ全部、撮れた時は、上がる音)
   applyMode();
   renderModeHelp();
   renderSteps();
@@ -516,12 +571,22 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowLeft") stepLightbox(-1);
 });
 $("save-all").addEventListener("click", saveAll);
+$("sound-toggle").addEventListener("click", () => {
+  state.soundOn = !state.soundOn;
+  try { localStorage.setItem("hand-photo-web-sound", state.soundOn ? "on" : "off"); } catch (e) { /* 覚えられなくても、よい */ }
+  unlockSound();
+  renderSound();
+  if (state.soundOn) playSound("shot");   // 押した時に、一度、鳴らして、聞こえるかを、確かめられる
+});
+document.addEventListener("pointerdown", unlockSound);   // 画面の、どこかを、タップすると、音が、使えるようになる(iPhone)
 $("reset-all").addEventListener("click", resetAll);
 $("shoot").addEventListener("click", () => captureStep("manual"));
 $("flip").addEventListener("click", () => { state.facingMode = state.facingMode === "user" ? "environment" : "user"; startCamera(); });
 
 // ---- 起動 ----
 if (window.matchMedia && window.matchMedia("(min-width: 900px)").matches) $("numbers").open = true;   // 広い画面(PC)では、確認用の数字を、手と一緒に見られるよう、はじめから、開いておく
+try { if (localStorage.getItem("hand-photo-web-sound") === "off") state.soundOn = false; } catch (e) { /* 読めなくても、よい */ }
+renderSound();
 applyMode();
 renderModeHelp();
 renderSteps();

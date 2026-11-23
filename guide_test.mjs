@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, makeWav, makeWavBytes, SOUND_DEFS } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -338,6 +338,22 @@ test("爪の写真の、ファイル名: 手の甲の写真と、同じ日付・
   assert.equal(stepFileName(STEPS[1], d), "hand_left_back_20261122_090507.jpg");
   const r = fingertipRects(makeHand({ hand: "right", facing: "back" }).lm, FRAME);
   assert.deepEqual(r.map((n) => n.key), ["thumb", "index", "middle", "ring", "pinky"]);
+});
+
+test("撮れた音: WAV を、その場で、作る。ヘッダーが、正しい(RIFF / WAVE / 16ビット・モノラル / 22050Hz)。長さは、音の合計。音が、ゼロではない。割れない(振幅が、収まる)", () => {
+  for (const kind of ["shot", "done"]) {
+    const buf = new DataView(makeWavBytes(SOUND_DEFS[kind]));
+    const tag = (o) => String.fromCharCode(buf.getUint8(o), buf.getUint8(o + 1), buf.getUint8(o + 2), buf.getUint8(o + 3));
+    assert.equal(makeWav(SOUND_DEFS[kind]).type, "audio/wav");
+    assert.ok(tag(0) === "RIFF" && tag(8) === "WAVE" && tag(12) === "fmt " && tag(36) === "data", kind);
+    assert.ok(buf.getUint16(20, true) === 1 && buf.getUint16(22, true) === 1 && buf.getUint32(24, true) === 22050 && buf.getUint16(34, true) === 16);
+    const n = buf.getUint32(40, true) / 2, total = Math.max(...SOUND_DEFS[kind].map((x) => x.t + x.d)) + 0.03;
+    assert.ok(Math.abs(n / 22050 - total) < 0.001 && buf.byteLength === 44 + n * 2 && buf.getUint32(4, true) === 36 + n * 2, kind + " の長さ");
+    let peak = 0;
+    for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(buf.getInt16(44 + i * 2, true)));
+    assert.ok(peak > 8000 && peak < 32767, kind + " の振幅 " + peak);
+  }
+  assert.ok(SOUND_DEFS.done.length === 4 && SOUND_DEFS.done[3].f > SOUND_DEFS.done[0].f, "4つ全部の音は、上がる音");
 });
 
 // ---- 続ける時間 ----

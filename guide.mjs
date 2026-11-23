@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v30";
+export const VERSION = "v31";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -250,6 +250,31 @@ export function fingertipRects(lm, frame, box = NAIL_BOX) {
   }
   return out;
 }
+
+// ---- 撮れた時の音(その場で、作る。音のファイルは、使わない) ----
+// notes: [{ f(周波数 Hz), t(始まり 秒), d(長さ 秒) }]。 戻り値: 16ビット・モノラルの、WAV(Blob)。 <audio> で、鳴らす
+export function makeWavBytes(notes, rate = 22050) {
+  const total = Math.max(...notes.map((n) => n.t + n.d)) + 0.03;
+  const n = Math.floor(total * rate), pcm = new Int16Array(n);
+  for (const note of notes) {
+    const start = Math.floor(note.t * rate), len = Math.floor(note.d * rate);
+    for (let i = 0; i < len && start + i < n; i++) {
+      const env = Math.min(1, i / (0.004 * rate)) * Math.exp((-4 * i) / len);   // 立ち上がりは、速く、あとは、減衰
+      pcm[start + i] += Math.round(Math.sin((2 * Math.PI * note.f * i) / rate) * env * 0.6 * 32767);
+    }
+  }
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, pcm[i], true);
+  return buf;
+}
+export const makeWav = (notes, rate = 22050) => new Blob([makeWavBytes(notes, rate)], { type: "audio/wav" });   // <audio> で、鳴らす用
+export const SOUND_DEFS = {
+  shot: [{ f: 1568, t: 0, d: 0.09 }, { f: 2093, t: 0.07, d: 0.16 }],                                             // 撮れた(ピッ・ピン)
+  done: [{ f: 784, t: 0, d: 0.14 }, { f: 988, t: 0.13, d: 0.14 }, { f: 1319, t: 0.26, d: 0.14 }, { f: 1568, t: 0.39, d: 0.3 }],   // 4つ、全部、撮れた(ドミソド の、上がる音)
+};
 
 // 切り出し用の、変換の行列。 元の写真の点 p を、切り出した写真の点 (X, Y) にする(指先が、真上になる)。
 //   X = (p - 中心)・v + W/2、 Y = H/2 - (p - 中心)・u。 canvas の setTransform(a, b, c, d, e, f) に、そのまま、渡せる。 W × H = 四角の、画素の大きさ(拡大しない。丸めた値)
