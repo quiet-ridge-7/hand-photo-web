@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v40";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v43";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -279,9 +279,47 @@ function drawHand(lm, ok, guide = null, matched = false, nails = null) {
   for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
 }
 
+// ---- 映像と、描画の絵(オーバーレイ)の、大きさ・位置を、こちらで、計算して、決める ----
+//   ブラウザの、自動の計算(高さ auto と object-fit)に、頼らない。 iPhone で、ときどき、映像の絵だけが、小さく出て、ガイドと、ずれる不具合の対策。
+//   見た目は、これまでと、同じ: 幅は、枠いっぱい。 高さは、画面の 70%(PC の 2列表示は 80%)まで。 それを、超える時は、縦に、合わせて、左右に、黒い余白。
+//   映像が来る前は、CSS の、元の指定のまま。 毎コマ(6コマに、1回)、期待の大きさと、実際の大きさを、比べて、ずれていたら、指定し直す(自己修復)。
+const layoutState = { key: "", tick: 0 };
+function clearLayout() {
+  layoutState.key = "";
+  stage.style.removeProperty("height");
+  for (const el of [video, overlay]) for (const p of ["position", "left", "top", "width", "height", "max-height"]) el.style.removeProperty(p);
+}
+function layoutVideo() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) { if (layoutState.key) clearLayout(); return; }
+  const availW = stage.clientWidth;   // 枠の、中の幅(枠線を除く)
+  if (!availW) return;
+  const maxH = window.innerHeight * (window.matchMedia("(min-width: 900px)").matches ? 0.8 : 0.7);
+  const ar = vw / vh;
+  const H = Math.max(40, Math.min(availW / ar, maxH)), W = H * ar;
+  const key = [availW, Math.round(H), Math.round(W)].join();
+  const r = video.getBoundingClientRect();
+  const actualOk = Math.abs(r.width - W) < 1.5 && Math.abs(r.height - H) < 1.5;   // 実際の大きさが、期待どおりか(ずれていたら、指定し直す)
+  if (key === layoutState.key && actualOk) return;
+  layoutState.key = key;
+  stage.style.height = H + 6 + "px";   // 枠線(上下 3px ずつ)の分を足す
+  for (const el of [video, overlay]) {
+    el.style.position = "absolute";
+    el.style.left = (availW - W) / 2 + "px";
+    el.style.top = "0px";
+    el.style.width = W + "px";
+    el.style.height = H + "px";
+    el.style.maxHeight = "none";
+  }
+}
+for (const evName of ["loadedmetadata", "resize", "playing"]) video.addEventListener(evName, layoutVideo);
+window.addEventListener("resize", layoutVideo);
+window.addEventListener("orientationchange", () => { setTimeout(layoutVideo, 300); setTimeout(layoutVideo, 1000); });
+
 // ---- 毎コマの処理 ----
 function loop() {
   requestAnimationFrame(loop);
+  if (++layoutState.tick % 6 === 0) layoutVideo();   // 映像の大きさを、確かめる(ずれていたら、直す)
   if (!state.landmarker || video.readyState < 2 || !video.videoWidth) return;
   if (video.currentTime === state.lastVideoTime) return;   // 新しいコマが、まだ
   state.lastVideoTime = video.currentTime;

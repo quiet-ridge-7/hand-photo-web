@@ -80,6 +80,7 @@ try {
     window.__handNow = null;
     // カメラの許可の確認が、出たまま、答えが来ない場合(?gum=hang)と、画質の指定が、通らない場合(?gum=over。1回目だけ、失敗)の、再現
     if (location.search.includes("gum=hang")) navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+    if (location.search.includes("gum=portrait")) { navigator.mediaDevices.getUserMedia = () => { const c = document.createElement("canvas"); c.width = 360; c.height = 640; const x = c.getContext("2d"); let t = 0; setInterval(() => { t++; x.fillStyle = "#334"; x.fillRect(0, 0, 360, 640); x.fillStyle = "#e0b090"; x.fillRect(60 + (t % 40), 200, 200, 300); }, 33); return Promise.resolve(c.captureStream(30)); }; }   // 縦長(360 × 640。9:16)の映像(スマホの、縦持ちの、外側カメラの、再現)
     if (location.search.includes("gum=over")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); let n = 0; window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); if (n++ === 0) { const e = new Error("画質の指定が、通らない"); e.name = "OverconstrainedError"; return Promise.reject(e); } return orig(c); }; }
     if (location.search.includes("fake=1")) {
       window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
@@ -313,6 +314,29 @@ try {
   await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "画質を下げて、やり直す", 15000).catch(() => {});
   const gumCalls = await ev(`window.__gumCalls`);
   check("K2 画質の指定が通らなくても(1回目が失敗)、指定を、ゆるめて、やり直し、カメラが映る(2回目は、画質の指定なし・向きだけ)", /カメラが映っています/.test(await text("#status")) && gumCalls.length >= 2 && !/width/.test(gumCalls[1]), JSON.stringify(gumCalls));
+
+  // ---- 映像の大きさ(スマホで、ときどき、映像だけが、小さく出る不具合の対策): こちらで、計算して、決める ----
+  const boxInfo = () => ev(`(() => { const st = document.getElementById("stage"), v = document.getElementById("video"), o = document.getElementById("overlay"); const vr = v.getBoundingClientRect(), or = o.getBoundingClientRect(); const availW = st.clientWidth, maxH = window.innerHeight * (window.matchMedia("(min-width: 900px)").matches ? 0.8 : 0.7); const ar = v.videoWidth / v.videoHeight; const H = Math.min(availW / ar, maxH), W = H * ar; return { vw: v.videoWidth, vh: v.videoHeight, v: [vr.left, vr.top, vr.width, vr.height].map(Math.round), o: [or.left, or.top, or.width, or.height].map(Math.round), want: [Math.round(W), Math.round(H)], availW, stageH: st.clientHeight, maxH: Math.round(maxH) }; })()`);
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await load("?gum=portrait");
+  await waitFor(`document.getElementById("video").videoWidth > 0 && /カメラが映っています/.test(document.getElementById("status").textContent)`, "縦長の映像", 15000).catch(() => {});
+  await sleep(1500);
+  const bp = await boxInfo();
+  check("L1 縦持ちのスマホ(390 × 844)に、縦長(9:16)の映像: 映像は、期待の大きさ(高さ = 画面の 70%、幅 = 高さ × 9/16)で、出る。小さくならない", bp.vw === 360 && bp.vh === 640 && Math.abs(bp.v[2] - bp.want[0]) <= 2 && Math.abs(bp.v[3] - bp.want[1]) <= 2 && bp.want[1] === bp.maxH, JSON.stringify(bp));
+  check("L2 ガイドや手の点を描く絵(オーバーレイ)は、映像と、同じ位置・同じ大きさ。映像の枠の高さは、映像の高さと同じ(余白が、上下に、出ない)", JSON.stringify(bp.o) === JSON.stringify(bp.v) && Math.abs(bp.stageH - bp.want[1]) <= 2, JSON.stringify(bp));
+  // 不具合の再現: 映像の大きさを、外から、小さく、書き換える(iPhone で、起きる状態) → 自分で、直す
+  await ev(`(() => { const v = document.getElementById("video"); v.style.width = "40px"; v.style.height = "30px"; v.style.left = "5px"; return true; })()`);
+  const broken = await boxInfo();
+  await sleep(1200);
+  const healed = await boxInfo();
+  check("L3 映像の表示の大きさが、おかしく(小さく)なっても、数コマのうちに、自分で、期待の大きさに、直る(自己修復)", broken.v[2] < 100 && Math.abs(healed.v[2] - healed.want[0]) <= 2 && Math.abs(healed.v[3] - healed.want[1]) <= 2 && JSON.stringify(healed.o) === JSON.stringify(healed.v), JSON.stringify([broken.v, healed.v, healed.want]));
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await load("");
+  await waitFor(`document.getElementById("video").videoWidth > 0 && /カメラが映っています/.test(document.getElementById("status").textContent)`, "横長の画面の映像", 15000).catch(() => {});
+  await sleep(1500);
+  const bw = await boxInfo();
+  check("L4 PC の横長の画面(1280 × 800)に、横長(4:3)の映像: 期待の大きさ(高さ = 画面の 80% 以内、枠いっぱい)で、出る。映像と、描画の絵は、同じ", Math.abs(bw.v[2] - bw.want[0]) <= 2 && Math.abs(bw.v[3] - bw.want[1]) <= 2 && JSON.stringify(bw.o) === JSON.stringify(bw.v) && bw.v[3] <= bw.maxH + 2, JSON.stringify(bw));
+  await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
   await load("");
