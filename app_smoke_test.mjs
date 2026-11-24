@@ -290,11 +290,15 @@ try {
   await sleep(300);
   let pl = await place();
   const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { num: r("numbers-text"), h: window.innerHeight }; })()`);
+  const stageAr = await ev(`(() => { const st = document.getElementById("stage"), v = document.getElementById("video"); return { ar: st.style.getPropertyValue("--ar"), vr: v.videoWidth / v.videoHeight, box: (st.clientWidth) / (st.clientHeight), vbox: v.clientWidth / v.clientHeight }; })()`);
+  check("B19a 映像が来たら、映像の枠の縦横の比が、映像と、同じになる(黒い余白で、映像が、小さく見えない)", Math.abs(stageAr.box - stageAr.vr) < 0.03 && Math.abs(stageAr.vbox - stageAr.vr) < 0.03 && Math.abs(Number(stageAr.ar) - stageAr.vr) < 0.001, JSON.stringify(stageAr));
   check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], numTop: pl19.num.top, h: pl19.h }));
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(300);
   pl = await place();
   check("B20 狭い画面(390)では、1列(チェックが、映像の、下)。横に、はみ出さない", pl.checks.top >= pl.stage.bottom - 1 && (await ev(`document.documentElement.scrollWidth <= window.innerWidth + 1`)), JSON.stringify({ stageBottom: pl.stage.bottom, checksTop: pl.checks.top }));
+  const phoneBox = await ev(`(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { w: r.width, vw: window.innerWidth, ar: document.getElementById("stage").style.getPropertyValue("--ar") }; })()`);
+  check("B20a 狭い画面(390)でも、映像の枠は、画面の幅いっぱい(画面の幅の 90% 以上)。映像が、小さく、ならない", phoneBox.w >= phoneBox.vw * 0.9, JSON.stringify(phoneBox));
   await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // カメラの切り替え
@@ -309,10 +313,15 @@ try {
   await load("?gum=hang");
   await waitFor(`/許可の確認/.test(document.getElementById("status").textContent)`, "許可の確認の、案内", 12000).catch(() => {});
   check("K1 カメラの許可の確認の答えが、来ない時(約6秒)に、『カメラの許可の確認が、出ていませんか?』と、案内が出る(『準備しています』のまま、止まらない)", /カメラの許可の確認が、出ていませんか/.test(await text("#status")), await text("#status"));
+  const hangBox = await ev(`(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { w: r.width, h: r.height, ar: document.getElementById("stage").style.getPropertyValue("--ar"), portrait: window.innerHeight > window.innerWidth }; })()`);
+  check("K3 映像が、まだ来ない時(許可の確認の待ち)でも、映像の枠は、つぶれない(高さが 200px 以上)。仮の比は、画面の向きで決まる(縦長 3:4、横長 4:3)", hangBox.h > 200 && hangBox.ar === (hangBox.portrait ? "0.7500" : "1.3333") && Math.abs(hangBox.w / hangBox.h - Number(hangBox.ar)) < 0.03, JSON.stringify(hangBox));
   await load("?gum=over");
   await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "画質を下げて、やり直す", 15000).catch(() => {});
   const gumCalls = await ev(`window.__gumCalls`);
   check("K2 画質の指定が通らなくても(1回目が失敗)、指定を、ゆるめて、やり直し、カメラが映る(2回目は、画質の指定なし・向きだけ)", /カメラが映っています/.test(await text("#status")) && gumCalls.length >= 2 && !/width/.test(gumCalls[1]), JSON.stringify(gumCalls));
+  const portraitNow = await ev(`window.innerHeight > window.innerWidth`);
+  const c0 = JSON.parse(gumCalls[0]).video;
+  check("K4 カメラへの、最初の画質の指定は、画面の向きに合わせる(縦持ち: 縦長 1080 × 1920。横長の画面: 1920 × 1080)", c0.width.ideal === (portraitNow ? 1080 : 1920) && c0.height.ideal === (portraitNow ? 1920 : 1080), JSON.stringify([portraitNow, c0]));
 
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
   await load("");

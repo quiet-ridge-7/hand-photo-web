@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v40";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v41";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -167,8 +167,9 @@ async function startCamera() {
     if (token === state.camToken && !state.stream) setStatus("カメラの許可の確認が、出ていませんか?「許可」を選んでください。出ない時は、ページを、閉じて、開き直してください(iPhone は、設定 → Safari → カメラ も、確かめてください)。");
   }, 6000);
   // 画質の指定が、通らない時は、指定を、ゆるめて、やり直す(向きだけ → 何も、指定しない)
+  const portrait = window.innerHeight > window.innerWidth;   // 縦持ち: 縦長の映像(1080 × 1920)を、求める(横長を求めると、映像が、横長の帯になって、小さく見えることがある)
   const tries = [
-    { video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+    { video: { facingMode: state.facingMode, width: { ideal: portrait ? 1080 : 1920 }, height: { ideal: portrait ? 1920 : 1080 } }, audio: false },
     { video: { facingMode: state.facingMode }, audio: false },
     { video: true, audio: false },
   ];
@@ -279,9 +280,21 @@ function drawHand(lm, ok, guide = null, matched = false, nails = null) {
   for (const p of lm) { octx.beginPath(); octx.arc(p.x * w, p.y * h, r, 0, Math.PI * 2); octx.fill(); }
 }
 
+// 映像の枠の形を、映像の縦横の比に、合わせる(起動の直後や、向きが変わった時に、映像が、小さく見えないように)
+function syncStageAspect() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const ar = vw > 0 && vh > 0 ? vw / vh : window.innerHeight > window.innerWidth ? 0.75 : 1.3333;   // 映像が来る前は、画面の向きで、仮の比
+  const s = ar.toFixed(4);
+  if (stage.style.getPropertyValue("--ar") !== s) stage.style.setProperty("--ar", s);
+}
+for (const ev of ["loadedmetadata", "resize", "playing"]) video.addEventListener(ev, syncStageAspect);
+window.addEventListener("orientationchange", () => setTimeout(syncStageAspect, 300));
+syncStageAspect();
+
 // ---- 毎コマの処理 ----
 function loop() {
   requestAnimationFrame(loop);
+  syncStageAspect();   // 映像の大きさが、変わったら、すぐ、枠を、合わせる
   if (!state.landmarker || video.readyState < 2 || !video.videoWidth) return;
   if (video.currentTime === state.lastVideoTime) return;   // 新しいコマが、まだ
   state.lastVideoTime = video.currentTime;
