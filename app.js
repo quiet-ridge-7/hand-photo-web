@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v42";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v40";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -37,9 +37,6 @@ const state = {
   lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
   lastFrame: null,
   resetArmed: false,       // 「最初から、撮り直す」を、1回、押した状態(もう一度、押すと、消える)
-  orientSince: 0,          // 映像の向きが、画面と、合っていない状態が、始まった時刻(0 = 合っている)
-  orientRetries: 0,        // 向きが合わない時の、カメラの、始め直しの回数(最大 2回)
-  lastScreenPortrait: window.innerHeight > window.innerWidth,   // 画面の向きが、変わったかを、見るため
   camToken: 0,             // カメラを、始め直した回数(古い、始めの結果を、捨てるため)
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
@@ -157,28 +154,6 @@ function renderChecks(checks) {
 }
 
 // ---- カメラ ----
-// ---- 映像の向きが、画面と、合っているか(スマホで、ときどき、映像が、小さくなる対策) ----
-//   縦持ちなのに、横長の映像が来ると(またはその逆)、映像が、細い帯になって、小さく見える。
-//   画面の向きと、映像の向き(縦長か、横長か)が、1秒以上、合わない時は、カメラを、始め直す(画面の向きに合わせた、画質の指定で)。 最大 2回(くり返さない)。
-//   画面の向きが、変わった時も、始め直す(回数は、数え直す)。
-const ORIENT_WAIT_MS = 1000;
-function checkStreamOrientation() {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  if (!vw || !vh || !state.stream) { state.orientSince = 0; return; }
-  const screenPortrait = window.innerHeight > window.innerWidth;
-  const mismatch = Math.abs(vw - vh) / Math.max(vw, vh) > 0.05 && vh > vw !== screenPortrait;   // ほぼ正方形は、どちらでもよい
-  if (!mismatch) { state.orientSince = 0; return; }
-  const now = performance.now();
-  if (!state.orientSince) { state.orientSince = now; return; }
-  if (now - state.orientSince >= ORIENT_WAIT_MS && state.orientRetries < 2) {
-    state.orientRetries++;
-    state.orientSince = 0;
-    startCamera();
-  }
-}
-window.addEventListener("orientationchange", () => { state.orientRetries = 0; });
-window.addEventListener("resize", () => { if (window.innerHeight > window.innerWidth !== state.lastScreenPortrait) { state.lastScreenPortrait = window.innerHeight > window.innerWidth; state.orientRetries = 0; } });
-
 async function startCamera() {
   stopCamera();
   const token = ++state.camToken;
@@ -192,9 +167,8 @@ async function startCamera() {
     if (token === state.camToken && !state.stream) setStatus("カメラの許可の確認が、出ていませんか?「許可」を選んでください。出ない時は、ページを、閉じて、開き直してください(iPhone は、設定 → Safari → カメラ も、確かめてください)。");
   }, 6000);
   // 画質の指定が、通らない時は、指定を、ゆるめて、やり直す(向きだけ → 何も、指定しない)
-  const portrait = window.innerHeight > window.innerWidth;   // 縦持ち: 縦長の映像(1080 × 1920)を、求める(横長を求めると、映像が、横長の帯になって、小さく見えることがある)
   const tries = [
-    { video: { facingMode: state.facingMode, width: { ideal: portrait ? 1080 : 1920 }, height: { ideal: portrait ? 1920 : 1080 }, aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 } }, audio: false },
+    { video: { facingMode: state.facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
     { video: { facingMode: state.facingMode }, audio: false },
     { video: true, audio: false },
   ];
@@ -308,7 +282,6 @@ function drawHand(lm, ok, guide = null, matched = false, nails = null) {
 // ---- 毎コマの処理 ----
 function loop() {
   requestAnimationFrame(loop);
-  checkStreamOrientation();   // 映像の向きが、画面と、合っているかを、見る(合っていなければ、カメラを、始め直す)
   if (!state.landmarker || video.readyState < 2 || !video.videoWidth) return;
   if (video.currentTime === state.lastVideoTime) return;   // 新しいコマが、まだ
   state.lastVideoTime = video.currentTime;

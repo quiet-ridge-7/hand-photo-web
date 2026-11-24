@@ -80,7 +80,6 @@ try {
     window.__handNow = null;
     // カメラの許可の確認が、出たまま、答えが来ない場合(?gum=hang)と、画質の指定が、通らない場合(?gum=over。1回目だけ、失敗)の、再現
     if (location.search.includes("gum=hang")) navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
-    if (location.search.includes("gum=count")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); return orig(c); }; }
     if (location.search.includes("gum=over")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); let n = 0; window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); if (n++ === 0) { const e = new Error("画質の指定が、通らない"); e.name = "OverconstrainedError"; return Promise.reject(e); } return orig(c); }; }
     if (location.search.includes("fake=1")) {
       window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
@@ -314,28 +313,6 @@ try {
   await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "画質を下げて、やり直す", 15000).catch(() => {});
   const gumCalls = await ev(`window.__gumCalls`);
   check("K2 画質の指定が通らなくても(1回目が失敗)、指定を、ゆるめて、やり直し、カメラが映る(2回目は、画質の指定なし・向きだけ)", /カメラが映っています/.test(await text("#status")) && gumCalls.length >= 2 && !/width/.test(gumCalls[1]), JSON.stringify(gumCalls));
-  const portraitNow = await ev(`window.innerHeight > window.innerWidth`);
-  const c0 = JSON.parse(gumCalls[0]).video;
-  check("K4 カメラへの、最初の画質の指定は、画面の向きに合わせる(縦持ち: 縦長 1080 × 1920。横長の画面: 1920 × 1080)", c0.width.ideal === (portraitNow ? 1080 : 1920) && c0.height.ideal === (portraitNow ? 1920 : 1080), JSON.stringify([portraitNow, c0]));
-
-  // ---- 映像の向きが、画面と、合わない時(縦持ちなのに、横長の映像が来る、など)の、やり直し ----
-  //   この試験の、偽のカメラは、横長(640 × 480)。 縦持ち(390 × 844)にすると、向きが、合わない → 始め直す(最大 2回。くり返さない)。 横長の画面では、合っている → 始め直さない
-  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
-  await load("?gum=count");
-  await waitFor(`window.__gumCalls && window.__gumCalls.length >= 3`, "向きが合わない時の、始め直し(2回)", 20000).catch(() => {});
-  await sleep(3500);
-  const callsP = await ev(`window.__gumCalls.length`);
-  const statusP = await text("#status");
-  check("K5 縦持ち(390 × 844)で、横長の映像が来る時は、カメラを、始め直す(最初の 1回 + 始め直し 2回 = 3回)。それ以上は、くり返さない(3.5秒たっても、3回のまま)。映像は、出ている", callsP === 3 && /カメラが映っています/.test(statusP), JSON.stringify([callsP, statusP]));
-  const firstP = JSON.parse(await ev(`window.__gumCalls[0]`)).video, lastP = JSON.parse(await ev(`window.__gumCalls[2]`)).video;
-  check("K5b 始め直す時も、縦長の画質の指定(1080 × 1920、縦横の比 9:16)を、出す", firstP.width.ideal === 1080 && firstP.height.ideal === 1920 && Math.abs(firstP.aspectRatio.ideal - 9 / 16) < 1e-9 && lastP.height.ideal === 1920, JSON.stringify([firstP, lastP]));
-  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
-  await load("?gum=count");
-  await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "横長の画面で、カメラが映る", 15000).catch(() => {});
-  await sleep(3500);
-  const callsL = await ev(`window.__gumCalls.length`);
-  check("K6 横長の画面(1280 × 720)では、映像(横長)と、向きが合うので、カメラを、始め直さない(1回だけ)", callsL === 1, String(callsL));
-  await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
   await load("");
