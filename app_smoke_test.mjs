@@ -80,6 +80,7 @@ try {
     window.__handNow = null;
     // カメラの許可の確認が、出たまま、答えが来ない場合(?gum=hang)と、画質の指定が、通らない場合(?gum=over。1回目だけ、失敗)の、再現
     if (location.search.includes("gum=hang")) navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
+    if (location.search.includes("gum=count")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); return orig(c); }; }
     if (location.search.includes("gum=over")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); let n = 0; window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); if (n++ === 0) { const e = new Error("画質の指定が、通らない"); e.name = "OverconstrainedError"; return Promise.reject(e); } return orig(c); }; }
     if (location.search.includes("fake=1")) {
       window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
@@ -290,15 +291,11 @@ try {
   await sleep(300);
   let pl = await place();
   const pl19 = await ev(`(() => { const r = (id) => { const b = document.getElementById(id).getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }; return { num: r("numbers-text"), h: window.innerHeight }; })()`);
-  const stageAr = await ev(`(() => { const st = document.getElementById("stage"), v = document.getElementById("video"); return { ar: st.style.getPropertyValue("--ar"), vr: v.videoWidth / v.videoHeight, box: (st.clientWidth) / (st.clientHeight), vbox: v.clientWidth / v.clientHeight }; })()`);
-  check("B19a 映像が来たら、映像の枠の縦横の比が、映像と、同じになる(黒い余白で、映像が、小さく見えない)", Math.abs(stageAr.box - stageAr.vr) < 0.03 && Math.abs(stageAr.vbox - stageAr.vr) < 0.03 && Math.abs(Number(stageAr.ar) - stageAr.vr) < 0.001, JSON.stringify(stageAr));
   check("B19 広い画面(1280 × 800)では、確認用の数字が、はじめから開いていて、映像の、右に、並ぶ。確認用の数字の枠も、画面の中(下に、スクロールしなくても、見える)に、収まる", pl.numbers.left >= pl.stage.right - 1 && pl.checks.left >= pl.stage.right - 1 && pl19.num.top < pl19.h, JSON.stringify({ stage: [pl.stage.top, pl.stage.bottom], numTop: pl19.num.top, h: pl19.h }));
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(300);
   pl = await place();
   check("B20 狭い画面(390)では、1列(チェックが、映像の、下)。横に、はみ出さない", pl.checks.top >= pl.stage.bottom - 1 && (await ev(`document.documentElement.scrollWidth <= window.innerWidth + 1`)), JSON.stringify({ stageBottom: pl.stage.bottom, checksTop: pl.checks.top }));
-  const phoneBox = await ev(`(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { w: r.width, vw: window.innerWidth, ar: document.getElementById("stage").style.getPropertyValue("--ar") }; })()`);
-  check("B20a 狭い画面(390)でも、映像の枠は、画面の幅いっぱい(画面の幅の 90% 以上)。映像が、小さく、ならない", phoneBox.w >= phoneBox.vw * 0.9, JSON.stringify(phoneBox));
   await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // カメラの切り替え
@@ -313,8 +310,6 @@ try {
   await load("?gum=hang");
   await waitFor(`/許可の確認/.test(document.getElementById("status").textContent)`, "許可の確認の、案内", 12000).catch(() => {});
   check("K1 カメラの許可の確認の答えが、来ない時(約6秒)に、『カメラの許可の確認が、出ていませんか?』と、案内が出る(『準備しています』のまま、止まらない)", /カメラの許可の確認が、出ていませんか/.test(await text("#status")), await text("#status"));
-  const hangBox = await ev(`(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { w: r.width, h: r.height, ar: document.getElementById("stage").style.getPropertyValue("--ar"), portrait: window.innerHeight > window.innerWidth }; })()`);
-  check("K3 映像が、まだ来ない時(許可の確認の待ち)でも、映像の枠は、つぶれない(高さが 200px 以上)。仮の比は、画面の向きで決まる(縦長 3:4、横長 4:3)", hangBox.h > 200 && hangBox.ar === (hangBox.portrait ? "0.7500" : "1.3333") && Math.abs(hangBox.w / hangBox.h - Number(hangBox.ar)) < 0.03, JSON.stringify(hangBox));
   await load("?gum=over");
   await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "画質を下げて、やり直す", 15000).catch(() => {});
   const gumCalls = await ev(`window.__gumCalls`);
@@ -322,6 +317,25 @@ try {
   const portraitNow = await ev(`window.innerHeight > window.innerWidth`);
   const c0 = JSON.parse(gumCalls[0]).video;
   check("K4 カメラへの、最初の画質の指定は、画面の向きに合わせる(縦持ち: 縦長 1080 × 1920。横長の画面: 1920 × 1080)", c0.width.ideal === (portraitNow ? 1080 : 1920) && c0.height.ideal === (portraitNow ? 1920 : 1080), JSON.stringify([portraitNow, c0]));
+
+  // ---- 映像の向きが、画面と、合わない時(縦持ちなのに、横長の映像が来る、など)の、やり直し ----
+  //   この試験の、偽のカメラは、横長(640 × 480)。 縦持ち(390 × 844)にすると、向きが、合わない → 始め直す(最大 2回。くり返さない)。 横長の画面では、合っている → 始め直さない
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await load("?gum=count");
+  await waitFor(`window.__gumCalls && window.__gumCalls.length >= 3`, "向きが合わない時の、始め直し(2回)", 20000).catch(() => {});
+  await sleep(3500);
+  const callsP = await ev(`window.__gumCalls.length`);
+  const statusP = await text("#status");
+  check("K5 縦持ち(390 × 844)で、横長の映像が来る時は、カメラを、始め直す(最初の 1回 + 始め直し 2回 = 3回)。それ以上は、くり返さない(3.5秒たっても、3回のまま)。映像は、出ている", callsP === 3 && /カメラが映っています/.test(statusP), JSON.stringify([callsP, statusP]));
+  const firstP = JSON.parse(await ev(`window.__gumCalls[0]`)).video, lastP = JSON.parse(await ev(`window.__gumCalls[2]`)).video;
+  check("K5b 始め直す時も、縦長の画質の指定(1080 × 1920、縦横の比 9:16)を、出す", firstP.width.ideal === 1080 && firstP.height.ideal === 1920 && Math.abs(firstP.aspectRatio.ideal - 9 / 16) < 1e-9 && lastP.height.ideal === 1920, JSON.stringify([firstP, lastP]));
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+  await load("?gum=count");
+  await waitFor(`/カメラが映っています/.test(document.getElementById("status").textContent)`, "横長の画面で、カメラが映る", 15000).catch(() => {});
+  await sleep(3500);
+  const callsL = await ev(`window.__gumCalls.length`);
+  check("K6 横長の画面(1280 × 720)では、映像(横長)と、向きが合うので、カメラを、始め直さない(1回だけ)", callsL === 1, String(callsL));
+  await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
   await load("");

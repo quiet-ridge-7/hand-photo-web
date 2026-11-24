@@ -5,11 +5,9 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 #seq-panel[hidden] { display: none; }
 h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .sub { color: var(--sub); font-size: 0.9rem; margin: 4px 0 12px; }
-/* 映像の枠: 映像の縦横の比(--ar = 幅 ÷ 高さ)に、枠の形を、合わせる(黒い余白で、映像が、小さく見えない)。 映像が、来る前は、画面の向きで、仮の比。 幅は、画面の幅いっぱい(高さの上限 --maxh を、超えない範囲で) */
-#stage { --maxh: 85vh; position: relative; width: min(100%, calc(var(--maxh) * var(--ar, 0.75))); aspect-ratio: var(--ar, 0.75); margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; border: 3px solid var(--warn); }
-@supports (height: 1dvh) { #stage { --maxh: 85dvh; } }
+#stage { position: relative; width: 100%; background: #000; border-radius: 12px; overflow: hidden; border: 3px solid var(--warn); }
 #stage.ok { border-color: var(--ok); }
-#video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+#video { display: block; width: 100%; height: auto; max-height: 70vh; object-fit: contain; background: #000; }
 #video.mirror, #overlay.mirror { transform: scaleX(-1); }
 #overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 #guide { position: absolute; left: 8px; right: 8px; bottom: 8px; background: rgba(15, 23, 42, 0.85); color: #fff; border-radius: 10px; padding: 10px 12px; font-size: 1.1rem; font-weight: 600; text-align: center; }
@@ -32,7 +30,7 @@ pre { white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; color: va
 #camera-view[hidden] { display: none; }
 @media (min-width: 900px) {
   #camera-view { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 20px; align-items: start; }
-  #stage { --maxh: 80vh; }
+  #video { max-height: 80vh; }
   #right { position: sticky; top: 8px; }
   #right details { margin-top: 12px; }
   #numbers-text { max-height: 40vh; overflow: auto; font-family: ui-monospace, Consolas, monospace; }
