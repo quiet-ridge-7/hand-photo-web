@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v43";
+export const VERSION = "v44";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -17,7 +17,6 @@ export const T = {
   extendRatio: 1.12,   // 指が伸びている: (指先〜手首) ÷ (第2関節〜手首) が、これ以上
   openGapMinDeg: 1.5,  // となり合う指の、開き(度)の、最小。「重なっていない」の目安。目的(皮膚・関節・爪)では、大きく開く必要は、ない(6度、3度では、厳しすぎた)
   openTotalMinDeg: 0,  // 人差し指〜小指の、開きの合計(度)の、最小。0 = 見ない
-  stillMax: 0.012,     // 動き(画面の対角に対する割合)。これ以下なら「止まっている」
   stillWindowMs: 400,  // 動きを見る、時間の幅
   brightMin: 60,       // 手のあたりの、明るさ(0〜255)。これより暗いと「暗い」
   brightMax: 225,      // これより明るいと「明るすぎる」
@@ -368,7 +367,7 @@ export function checkList(mode, wantHand = null) {
     return [...common, ...side, { id: "inside", label: "画面に入っている" }, { id: "size", label: "近さ" }, { id: "center", label: "中央" },
       { id: "facing", label: mode === "palm" ? "手のひら側" : "手の甲側" }, { id: "flat", label: "まっすぐ" },
       { id: "extend", label: "指が伸びている" }, { id: "open", label: "指が重なっていない" }, { id: "guide", label: "ガイドに重なっている" },
-      { id: "bright", label: "明るさ" }, { id: "still", label: "止まっている" }, { id: "sharp", label: "ピント" }];
+      { id: "bright", label: "明るさ" }, { id: "sharp", label: "ピント" }];
   }
   return common;
 }
@@ -478,9 +477,7 @@ export function evaluate(input) {
   else if (brightness != null && brightness > T.brightMax) msgs.bright = "明るすぎます。光が、強すぎない所で、撮ってください";
   else if (brightness == null) msgs.bright = "明るさを、確かめています";
 
-  numbers.motion = motion == null ? null : Math.round(motion * 1000) / 1000;
-  ok.still = motion != null && motion <= T.stillMax;
-  if (!ok.still) msgs.still = "手を、止めてください";
+  numbers.motion = motion == null ? null : Math.round(motion * 1000) / 1000;   // 動き(確認用の数字に、出すだけ。「止まっている」の条件は、2026-11-25 に、外した)
 
   numbers.sharp = sharp == null ? null : Math.round(sharp);
   ok.sharp = sharp != null && sharp >= T.sharpMin;

@@ -75,9 +75,9 @@ test("指の重なり: 大きく開いた手(12度)も、ゆるく開いた手(5
 test("動き: 止まっている手は、小さい。動いている手は、大きい。見ている時間が、短い間は、動いている扱い", () => {
   const h = makeHand().lm;
   const still = []; for (let t = 0; t <= 600; t += 50) still.push({ t, pts: pointsOf(h) });
-  assert.ok(motionScore(still, FRAME) <= T.stillMax);
+  assert.ok(motionScore(still, FRAME) <= 0.012);   // 以前の「止まっている」の閾値 0.012(いまは、条件には、使わない。数字を出すだけ)
   const moving = []; for (let t = 0; t <= 600; t += 50) moving.push({ t, pts: pointsOf(makeHand({ cx: 0.5 + t / 3000 }).lm) });
-  assert.ok(motionScore(moving, FRAME) > T.stillMax * 2, String(motionScore(moving, FRAME)));
+  assert.ok(motionScore(moving, FRAME) > 0.012 * 2, String(motionScore(moving, FRAME)));
   assert.equal(motionScore(still.slice(0, 3), FRAME), 1);
   assert.equal(motionScore([], FRAME), 1);
 });
@@ -150,11 +150,10 @@ test("ガイド: 指が曲がっている → 指の名前つき。指が閉じ�
   assert.equal(run("palm", makeHand({ curl: 1 })).guide, "中指を、まっすぐ、伸ばしてください");
   assert.equal(run("palm", makeHand({ spread: 0 })).guide, "人差し指と中指が、重なっています。少し、離してください");
 });
-test("ガイド: 暗い / 明るすぎる / 動いている / ぼやけている", () => {
+test("ガイド: 暗い / 明るすぎる / ぼやけている(動きは、条件に、入れない)", () => {
   const h = makeHand();
   assert.equal(run("palm", h, { brightness: 30 }).guide, "暗いです。明るい場所で、撮ってください");
   assert.equal(run("palm", h, { brightness: 250 }).guide, "明るすぎます。光が、強すぎない所で、撮ってください");
-  assert.equal(run("palm", h, { motion: 0.05 }).guide, "手を、止めてください");
   assert.equal(run("palm", h, { sharp: 5 }).guide, "ピントが合うまで、止めてください");
   assert.equal(run("palm", h, { brightness: null }).guide, "明るさを、確かめています");
 });
@@ -391,6 +390,16 @@ test("ガイドの傾き: 傾けても、画面(横長・縦長)の中に収ま�
       assert.ok(opp.overlap < same.overlap - 0.15, F.w + " " + hand + " " + JSON.stringify([same.overlap, opp.overlap]));
     }
   }
+});
+
+test("「止まっている」は、条件に、入れない: チェック項目に、無い。手が、大きく動いていても(動き 0.5)、ほかの条件が、そろえば、ok。動きの数字は、確認用に、出る", () => {
+  const h = makeHand({ hand: "right", facing: "palm" });
+  assert.ok(!checkList("palm").some((c) => c.id === "still") && !checkList("back", "left").some((c) => c.id === "still"));
+  for (const motion of [0, 0.012, 0.05, 0.5, 1, null]) {
+    const r = run("palm", h, { motion });
+    assert.ok(r.allOk && !r.checks.some((c) => c.id === "still") && r.numbers.motion === (motion == null ? null : Math.round(motion * 1000) / 1000), String(motion) + " " + r.guide);
+  }
+  assert.equal(T.stillMax, undefined);
 });
 
 // ---- 続ける時間 ----
