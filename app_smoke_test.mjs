@@ -40,8 +40,12 @@ const Y4M = path.join(profile, "fake_camera.y4m");
 {
   const W = 640, H = 480, frames = 10, parts = [Buffer.from("YUV4MPEG2 W" + W + " H" + H + " F30:1 Ip A1:1 C420jpeg\n")];
   const y = Buffer.alloc(W * H), u = Buffer.alloc((W / 2) * (H / 2), 128), v = Buffer.alloc((W / 2) * (H / 2), 128);
-  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) y[j * W + i] = ((i >> 2) + (j >> 2)) % 2 === 0 ? 170 : 90;
-  for (let f = 0; f < frames; f++) parts.push(Buffer.from("FRAME\n"), y, u, v);
+  const AMP = [40, 20, 32, 26, 38, 22, 34, 28, 36, 24];   // コマごとの、模様の濃さ(くっきり度が、コマごとに、変わる。 どのコマも、くっきり度の下限は、超える)
+  for (let f = 0; f < frames; f++) {
+    const yf = Buffer.alloc(W * H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) yf[j * W + i] = 130 + (((i >> 2) + (j >> 2)) % 2 === 0 ? AMP[f] : -AMP[f]);
+    parts.push(Buffer.from("FRAME\n"), yf, u, v);
+  }
   fs.writeFileSync(Y4M, Buffer.concat(parts));
 }
 const edge = spawn(EDGE, ["--headless=new", "--disable-gpu", "--no-first-run", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--use-file-for-fake-video-capture=" + Y4M,
@@ -179,6 +183,8 @@ try {
   if (got) {
     check("S3 撮れた項目に、写真(blob)の小さな絵と、『撮り直す』が出る。次は『左手の甲』。カメラの画面は、止まらない(隠れない)", /^blob:/.test(await ev(`document.querySelector("#steps li.done img.thumb").src`)) && (await ev(`document.querySelectorAll("#steps li.done button").length`)) === 1 && (await stepClass(1)) === "current" && /次は、「左手の甲」/.test(await text("#mode-help")) && !(await ev(`document.getElementById("camera-view").hidden`)), await text("#mode-help"));
     check("S3b 撮れて、次の項目に移ると、左上の表示も、変わる(『撮影中: 左手の甲』)", /^撮影中: 左手の甲$/.test(await text("#now-label")), await text("#now-label"));
+    const best1 = await ev(`window.__lastBest`);
+    check("S3u 自動撮影は、全条件が、そろっていた間(約1秒)の、くっきり度が、いちばん高い1コマを、写真にする(選んだ値 = 測った値の、最大。測った回数は、複数。値は、コマごとに、変わっている)", !!best1 && best1.log.length >= 3 && best1.sharp === Math.max(...best1.log) && Math.max(...best1.log) > Math.min(...best1.log) && /いちばん、くっきりした1枚です\(くっきり度 \d+\)/.test(await text("#seq-note")), JSON.stringify(best1));
     check("S3s 撮れた直後に、「撮れました。 / 次は、左手の甲」だけが、映像の真ん中に、大きく出る(項目の名前の行は、無い)。文字は、大きい(30px 以上)", (await ev(`!document.getElementById("shot-banner").hidden`)) && (await text("#shot-banner-title")) === "撮れました。" && (await text("#shot-banner-next")) === "次は、左手の甲" && !(await ev(`!!document.getElementById("shot-banner-item")`)) && (await ev(`parseFloat(getComputedStyle(document.getElementById("shot-banner-title")).fontSize) >= 30`)), await text("#shot-banner"));
     check("S4 撮った直後の案内: 『撮れました: 左手のひら。次は、左手の甲です』。『左手のひらを、撮りました』と、出る。『保存(1枚)』が、押せる", /撮れました: 左手のひら。次は、左手の甲です/.test(await guide()) && /左手のひらを、撮りました/.test(await text("#seq-note")) && (await text("#save-all")) === "保存(1枚)" && !(await ev(`document.getElementById("save-all").disabled`)), (await guide()) + " / " + (await text("#seq-note")));
     await waitFor(`document.getElementById("shot-banner").hidden`, "大きな表示が、消える", 8000).catch(() => {});
