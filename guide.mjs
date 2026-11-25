@@ -5,7 +5,7 @@
 
 // ---- しきい値 ----
 // 版(ファイルが、新旧、混ざっていないかを、画面で、確かめるための、印)。 guide.mjs と app.js で、同じ値にする
-export const VERSION = "v45";
+export const VERSION = "v46";
 
 export const T = {
   edge: 0.02,          // 手の点が、画面の端から、この割合より、外にあると、「はみ出している」
@@ -409,7 +409,7 @@ export function stepFileName(step, date) {
 
 // 判定。 input: { mode, landmarks(21個 | null), label("Left" | "Right"), frame({w, h}), motion(動き), brightness(0〜255 | null), sharp(くっきり度 | null), guideOverlap(ガイドとの一致 0〜1 | 省略), wantHand(撮る手 "right" | "left" | 省略) }
 //   戻り値: { checks: [{ id, label, ok, msg }], allOk, guide, numbers }
-//   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、止めてください」。
+//   guide: ok でない、最初の項目の、文。全部、そろったら、「そのまま、お待ちください」。
 export function evaluate(input) {
   const { mode, landmarks: lm, label, frame, motion, brightness, sharp } = input;
   const list = checkList(mode, input.wantHand);
@@ -481,11 +481,30 @@ export function evaluate(input) {
 
   numbers.sharp = sharp == null ? null : Math.round(sharp);
   ok.sharp = sharp != null && sharp >= T.sharpMin;
-  if (!ok.sharp) msgs.sharp = "ピントが合うまで、止めてください";
+  if (!ok.sharp) msgs.sharp = "ピントを、合わせています。そのまま、お待ちください";
 
   const checks = list.map((c) => ({ id: c.id, label: c.label, ok: !!ok[c.id], msg: msgs[c.id] || "" }));
   const firstBad = checks.find((c) => !c.ok);
-  return { checks, allOk: !firstBad, guide: firstBad ? firstBad.msg || "条件を、確かめています" : "そのまま、止めてください", numbers };
+  return { checks, allOk: !firstBad, guide: firstBad ? firstBad.msg || "条件を、確かめています" : "そのまま、お待ちください", numbers };
+}
+
+// ---- 1秒の間の、ピントの見方(1コマでも、下限を超えたら、OK) と、撮るかの判断 ----
+//   ピント以外の条件(othersOk)が、そろっている間、時間を数える。 その間に、くっきり度を、測るたび(measured)、いちばん高い値(bestSharp)を、覚える。
+//   1秒(holdMs)たって、bestSharp が、下限(sharpMin)以上なら、撮る(shoot)。 下限に、届いていなければ、そろっている間は、待ち続け、1コマでも、超えたら、すぐ、撮る。
+//   ピント以外の条件が、1つでも、外れたら、時間も、bestSharp も、数え直し。
+//   prev: 前のコマの、戻り値(最初は、{ since: null, bestSharp: null, log: [] })。 戻り値: { since, progress, ready, bestSharp, log, improved(このコマが、いちばんの更新), shoot }
+export const sharpOk = (s) => s != null && Number.isFinite(s) && s >= T.sharpMin;
+export function stepHold(prev, { othersOk, sharp, measured, now }) {
+  if (!othersOk) return { since: null, progress: 0, ready: false, bestSharp: null, log: [], improved: false, shoot: false };
+  const since = prev.since ?? now;
+  const progress = Math.min(1, (now - since) / T.holdMs);
+  let bestSharp = prev.bestSharp ?? null, log = prev.log || [], improved = false;
+  if (measured && sharp != null && Number.isFinite(sharp)) {
+    log = [...log, Math.round(sharp)];
+    if (bestSharp == null || sharp > bestSharp) { bestSharp = sharp; improved = true; }
+  }
+  const ready = progress >= 1;
+  return { since, progress, ready, bestSharp, log, improved, shoot: ready && sharpOk(bestSharp) };
 }
 
 // そろった状態が、続いた時間を、数える(途中で、1回でも崩れたら、数え直す)

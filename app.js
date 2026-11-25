@@ -2,9 +2,9 @@
 //   判定は guide.mjs(画面に依存しない)。映像と写真は、この端末の中だけで、扱う(送信しない)。
 //   手のひら・手の甲を、左手 → 右手の順に、4つ(STEPS)、自動で撮る。
 import { createHandLandmarker } from "./hand_setup.mjs";
-import { T, evaluate, facingOf, VERSION, holdProgress, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
+import { T, evaluate, facingOf, VERSION, holdProgress, stepHold, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v45";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v46";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -37,6 +37,7 @@ const state = {
   lastLm: null,            // 最後に見つけた、手の点と、映像の大きさ(手の甲を撮った時に、爪を切り出す)
   lastFrame: null,
   resetArmed: false,       // 「最初から、撮り直す」を、1回、押した状態(もう一度、押すと、消える)
+  hs: { since: null, bestSharp: null, log: [] },   // 1秒の間の、ピントの見方の、状態(guide.mjs の stepHold)
   best: { canvas: document.createElement("canvas"), has: false, sharp: -1, lm: null, frame: null, log: [] },   // 全条件が、そろっている間(約1秒)で、いちばん、くっきりした1コマ(自動撮影で、これを、使う)
   camToken: 0,             // カメラを、始め直した回数(古い、始めの結果を、捨てるため)
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
@@ -75,6 +76,8 @@ function applyMode() {
   const s = curStep();
   state.mode = s ? s.mode : STEPS[STEPS.length - 1].mode;
   state.hold = { since: null, progress: 0, ready: false };
+  state.hs = { since: null, bestSharp: null, log: [] };
+  state.best.has = false;
   state.history = [];
 }
 
@@ -378,46 +381,53 @@ function loop() {
     guide = state.guide.g;
   }
   const gm = guide && lm ? guideMatch(lm, guide, frame, false) : null;   // 一致(そのまま)だけ。ガイドの色(緑 / 白)に使う
-  const r = evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp: state.sharp, wantHand: step ? step.hand : undefined, guideOverlap: gm ? gm.overlap : null });   // ガイドとの一致(そのまま)も、条件に入る
+  const evalWith = (sharp) => evaluate({ mode: state.mode, landmarks: lm, label, frame, motion, brightness: state.bright, sharp, wantHand: step ? step.hand : undefined, guideOverlap: gm ? gm.overlap : null });
+  let r = evalWith(state.sharp);   // 1回目: いまのコマの、くっきり度で(ピント以外の条件が、そろっているかを、見るため)
+  const othersOk = r.checks.every((c) => c.id === "sharp" || c.ok);   // ピント以外の条件が、全部、そろっているか
+  const cooling = now < state.cooldownUntil;   // 撮った直後(次の案内を、見せる間)
+
+  // 1秒の間の、ピントの見方: ピント以外の条件が、そろっている間、時間を数え、その間に、1コマでも、下限を超えたら、OK(撮る)。 いちばん、くっきりした1コマを、とっておく
+  if (state.capturing) {
+    // 撮っている間は、そのまま
+  } else if (cooling || !step || !lm) {
+    state.hs = { since: null, bestSharp: null, log: [] };
+    state.best.has = false;
+  } else {
+    const hs = stepHold(state.hs, { othersOk, sharp: state.sharp, measured: measuredNow, now });
+    state.hs = hs;
+    if (hs.improved) {   // いちばんの更新: このコマを、とっておく
+      const b = state.best;
+      if (b.canvas.width !== vw || b.canvas.height !== vh) { b.canvas.width = vw; b.canvas.height = vh; }
+      b.canvas.getContext("2d").drawImage(video, 0, 0, vw, vh);
+      b.sharp = hs.bestSharp;
+      b.lm = lm;
+      b.frame = frame;
+      b.has = true;
+    } else if (!othersOk) {
+      state.best.has = false;
+    }
+  }
+  const winSharp = state.hs.bestSharp != null ? Math.max(state.hs.bestSharp, state.sharp ?? 0) : state.sharp;   // 1秒の間の、いちばん高い、くっきり度(無ければ、いまのコマ)
+  r = evalWith(winSharp);   // 2回目: ピントの条件は、1秒の間に、1コマでも、下限を超えたかで、見る
   const nails = lm && step && step.mode === "back" ? fingertipRects(lm, frame) : null;   // 手の甲を撮る時だけ、爪の四角を出す
   drawHand(lm, r.allOk, guide, !!(gm && gm.overlap != null && gm.overlap >= T.guideOverlap), nails);
   renderChecks(r.checks);
 
-  const cooling = now < state.cooldownUntil;   // 撮った直後(次の案内を、見せる間)
   if (cooling || !step) {
     state.hold = { since: null, progress: 0, ready: false };
     $("hold").value = 0;
     setGuide(cooling ? state.justMsg : "4つ、全部、撮れました。「全部、保存」を、押してください", true);
   } else {
-    state.hold = holdProgress(state.hold, r.allOk, now);
+    state.hold = { since: state.hs.since, progress: state.hs.progress ?? 0, ready: !!state.hs.ready };
     $("hold").value = state.hold.progress;
-    setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、止めてください" : r.allOk ? (SEQ_CAPTURE ? r.guide : "そろいました(撮影は、オフです)") : r.guide, r.allOk);
+    setGuide(r.allOk && state.hold.progress < 1 ? "そのまま、お待ちください" : r.allOk ? (SEQ_CAPTURE ? r.guide : "そろいました(撮影は、オフです)") : r.guide, r.allOk);
   }
   if (state.frameCount % 2 === 0) {   // いま見えている手(左右の判定が、合っているかを、確かめるため)
     if (seenHand) { const f = seenHand; $("seen").textContent = "いま見えている手: " + handName(f.hand) + "の" + (f.facing === "palm" ? "手のひら側" : "手の甲側"); }
     else $("seen").textContent = "いま見えている手: (なし)";
   }
-  if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
-  // 全条件が、そろっている間(約1秒)の、くっきり度が、いちばん高い1コマを、とっておく。 自動撮影は、そのコマを、写真にする
-  const collecting = !!(step && !cooling && !state.capturing && r.allOk && lm);
-  if (collecting) {
-    if (measuredNow && state.sharp != null) {   // くっきり度を、測った(新しい)コマだけが、候補
-      state.best.log.push(Math.round(state.sharp));
-      if (!state.best.has || state.sharp > state.best.sharp) {
-        const b = state.best;
-        if (b.canvas.width !== vw || b.canvas.height !== vh) { b.canvas.width = vw; b.canvas.height = vh; }
-        b.canvas.getContext("2d").drawImage(video, 0, 0, vw, vh);
-        b.sharp = state.sharp;
-        b.lm = lm;
-        b.frame = frame;
-        b.has = true;
-      }
-    }
-  } else if (!state.capturing) {   // 条件が、外れたら、とっておいたコマは、捨てる(次の、そろい直しから、数え直す)
-    state.best.has = false;
-    state.best.log = [];
-  }
-  if (state.hold.ready && step && SEQ_CAPTURE) captureStep("auto");
+  if (state.frameCount % 5 === 0) $("numbers-text").textContent = lm ? JSON.stringify({ ...r.numbers, sharpPatches: state.sharps, sharpBestIn1s: state.hs.bestSharp == null ? null : Math.round(state.hs.bestSharp) }, null, 1) : "(手が、映っていません) 明るさ: " + (r.numbers.bright ?? "-");
+  if (state.hs.shoot && step && SEQ_CAPTURE) captureStep("auto");
 }
 
 // ---- 「撮れました」の、大きな表示(映像の、真ん中) ----
@@ -480,14 +490,14 @@ async function captureStep(how) {
   const i = state.step, step = STEPS[i];
   const useBest = how === "auto" && state.best.has;   // 自動撮影: 全条件が、そろっていた間で、いちばん、くっきりした1コマを、写真にする。 手動の「撮影」は、いまの映像
   const bestSharp = useBest ? Math.round(state.best.sharp) : null;
-  if (useBest) window.__lastBest = { sharp: bestSharp, log: state.best.log.slice() };   // 試験・確認用
+  if (useBest) window.__lastBest = { sharp: bestSharp, log: state.hs.log.slice() };   // 試験・確認用
   state.capturing = true;
   const lmAtShot = useBest ? state.best.lm : state.lastLm, frameAtShot = useBest ? state.best.frame : state.lastFrame;   // 写真にする、コマの、手の点
   const shot = await canvasBlob(useBest ? state.best.canvas : null);
   const nails = shot && step.mode === "back" ? await cropNails(shot.canvas, lmAtShot, frameAtShot) : [];   // 手の甲だけ、爪を切り出す
   state.capturing = false;
   state.best.has = false;
-  state.best.log = [];
+  state.hs = { since: null, bestSharp: null, log: [] };
   if (!shot) { setStatus("写真を、作れませんでした(映像が、まだ、準備できていません)"); return; }
   if (state.step !== i) { for (const n of nails) URL.revokeObjectURL(n.url); return; }   // 撮っている間に、次の物に、切り替わった
   freeShot(state.shots[i]);

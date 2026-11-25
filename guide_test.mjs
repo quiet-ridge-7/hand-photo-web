@@ -3,7 +3,7 @@
 //   本物の手では、ありません。手のひら / 甲の判定の向きは、実機で、確かめた(逆に出たので、RAW_FRAME を false にした)。
 import assert from "node:assert/strict";
 import { T, LM, bbox, insideFrame, handSize, centerOffset, facingOf, flatness, fingerShape, motionScore, pointsOf,
-  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, GUIDE_TILT_DEG, silDisks, SIL_BULGE, SIL, PALM_POLY } from "./guide.mjs";
+  meanLuma, toGray, sharpness, makeGuide, guideMatch, silhouetteMask, maskIoU, alignHand, patchCenters, combineMeasures, fingertipRects, nailCropMatrix, NAIL_BOX, checkList, evaluate, holdProgress, STEPS, nextStep, stepHelp, stepFileName, nailFileName, stepHold, sharpOk, GUIDE_TILT_DEG, silDisks, SIL_BULGE, SIL, PALM_POLY } from "./guide.mjs";
 import { FRAME, PORTRAIT, makeHand } from "./test_hands.mjs";
 
 const failures = [];
@@ -114,10 +114,10 @@ test("測る数字のまとめ: 明るさは平均。くっきり度は、いち
 });
 
 // ---- まとめの判定(手のひら・甲) ----
-test("手のひらモード: 条件が、全部、そろった手 → ok。ガイドは、「そのまま、止めてください」", () => {
+test("手のひらモード: 条件が、全部、そろった手 → ok。ガイドは、「そのまま、お待ちください」", () => {
   const r = run("palm", makeHand({ facing: "palm" }));
   assert.ok(r.allOk, JSON.stringify(r.checks.filter((c) => !c.ok)));
-  assert.equal(r.guide, "そのまま、止めてください");
+  assert.equal(r.guide, "そのまま、お待ちください");
   assert.equal(r.checks.length, checkList("palm").length);
 });
 test("手の甲モード: 甲を向けた手 → ok。手のひらを向けた手 → 「手の甲を、カメラに、向けてください」", () => {
@@ -143,7 +143,7 @@ test("ガイド: 遠い / 近い / はみ出し / 中央から外れ / 傾き", 
   assert.equal(run("palm", makeHand({ cx: 0.96, scale: 0.7 })).guide, "手が、はみ出しています。画面の中に、入れてください");
   assert.equal(run("palm", makeHand({ cx: 0.22, scale: 0.75 })).guide, "手を、画面の中央に、動かしてください");
   assert.equal(run("palm", makeHand({ scale: 0.6 })).guide, "もう少し、近づけてください");   // 手の大きさ 0.60 は、下限 0.65 より、小さい
-  assert.equal(run("palm", makeHand({ scale: 0.68 })).guide, "そのまま、止めてください");   // 0.68 は、通る
+  assert.equal(run("palm", makeHand({ scale: 0.68 })).guide, "そのまま、お待ちください");   // 0.68 は、通る
   assert.equal(run("palm", makeHand({ tilt: 0.4 })).guide, "手を、カメラに、まっすぐ向けてください(傾いています)");
 });
 test("ガイド: 指が曲がっている → 指の名前つき。指が閉じている → となり合う指の名前つき", () => {
@@ -154,7 +154,7 @@ test("ガイド: 暗い / 明るすぎる / ぼやけている(動きは、条�
   const h = makeHand();
   assert.equal(run("palm", h, { brightness: 30 }).guide, "暗いです。明るい場所で、撮ってください");
   assert.equal(run("palm", h, { brightness: 250 }).guide, "明るすぎます。光が、強すぎない所で、撮ってください");
-  assert.equal(run("palm", h, { sharp: 5 }).guide, "ピントが合うまで、止めてください");
+  assert.equal(run("palm", h, { sharp: 5 }).guide, "ピントを、合わせています。そのまま、お待ちください");
   assert.equal(run("palm", h, { brightness: null }).guide, "明るさを、確かめています");
 });
 test("ガイドの順番: 先に、近さ、次に、向き、…。複数、ダメな時は、いちばん上の、1つだけ", () => {
@@ -400,6 +400,42 @@ test("「止まっている」は、条件に、入れない: チェック項目
     assert.ok(r.allOk && !r.checks.some((c) => c.id === "still") && r.numbers.motion === (motion == null ? null : Math.round(motion * 1000) / 1000), String(motion) + " " + r.guide);
   }
   assert.equal(T.stillMax, undefined);
+});
+
+// ---- 1秒の間の、ピントの見方(1コマでも、下限を超えたら、OK) ----
+test("ピントの下限: 40 以上が、OK。39.9 は、だめ。測れていない(null)は、だめ", () => {
+  assert.ok(sharpOk(40) && sharpOk(41) && sharpOk(5000) && !sharpOk(39.9) && !sharpOk(0) && !sharpOk(null) && !sharpOk(undefined) && !sharpOk(NaN));
+});
+test("1秒の間の、ピント: 1コマでも、40 以上があれば、1秒たった時に、撮る(下回るコマが、混ざっていても、数え直さない)", () => {
+  // ピント以外の条件が、ずっと、そろっている。 くっきり度は、10, 5, 50, 8, 3, … と、下回るコマが、多い。 100ms ごとに、測る
+  let s = { since: null, bestSharp: null, log: [] }, shot = null;
+  const seq = [10, 5, 50, 8, 3, 7, 2, 9, 4, 6, 1, 8];   // 3番目に、50(1コマだけ、下限超え)
+  seq.forEach((v, k) => { s = stepHold(s, { othersOk: true, sharp: v, measured: true, now: 1000 + k * 100 }); if (s.shoot && shot == null) shot = { k, best: s.bestSharp, log: s.log.length }; });
+  assert.ok(shot && shot.k === 10 && shot.best === 50, JSON.stringify(shot));   // 1000ms + 1000 = 2000ms の、コマ(k = 10)で、撮る。 選ぶコマは、50
+  assert.deepEqual(s.log.slice(0, 4), [10, 5, 50, 8]);
+});
+test("1秒の間の、ピント: 全部のコマが、下限未満なら、撮らない(そろっている間は、待ち続ける)。 1コマでも、超えたら、すぐ、撮る", () => {
+  let s = { since: null, bestSharp: null, log: [] };
+  for (let k = 0; k < 30; k++) { s = stepHold(s, { othersOk: true, sharp: 30 + (k % 3), measured: true, now: 1000 + k * 100 }); assert.ok(!s.shoot, "撮らない " + k); }
+  assert.ok(s.ready && s.progress === 1 && !sharpOk(s.bestSharp));
+  s = stepHold(s, { othersOk: true, sharp: 41, measured: true, now: 5000 });
+  assert.ok(s.shoot && s.bestSharp === 41 && s.improved);
+});
+test("1秒の間の、ピント: 測っていないコマは、数えない。 ピント以外の条件が、外れたら、時間も、いちばんの値も、数え直す。 いちばんの更新は、improved で、知らせる", () => {
+  let s = { since: null, bestSharp: null, log: [] };
+  s = stepHold(s, { othersOk: true, sharp: 60, measured: true, now: 0 });
+  assert.ok(s.improved && s.bestSharp === 60);
+  s = stepHold(s, { othersOk: true, sharp: 999, measured: false, now: 100 });   // 測っていない: 無視
+  assert.ok(!s.improved && s.bestSharp === 60 && s.log.length === 1);
+  s = stepHold(s, { othersOk: true, sharp: 55, measured: true, now: 200 });
+  assert.ok(!s.improved && s.bestSharp === 60 && s.log.length === 2);   // 下回る: 更新しない(でも、記録は、残る)
+  s = stepHold(s, { othersOk: true, sharp: 61, measured: true, now: 300 });
+  assert.ok(s.improved && s.bestSharp === 61);
+  assert.ok(!s.shoot && s.progress === 0.3);   // 1秒には、まだ
+  s = stepHold(s, { othersOk: false, sharp: 100, measured: true, now: 400 });   // ほかの条件が、外れた
+  assert.ok(s.since === null && s.bestSharp === null && s.log.length === 0 && s.progress === 0 && !s.shoot);
+  s = stepHold(s, { othersOk: true, sharp: 20, measured: true, now: 500 });   // 数え直し
+  assert.ok(s.since === 500 && s.bestSharp === 20 && s.log.length === 1);
 });
 
 // ---- 続ける時間 ----
