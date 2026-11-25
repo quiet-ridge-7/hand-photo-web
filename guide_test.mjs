@@ -403,11 +403,12 @@ test("「止まっている」は、条件に、入れない: チェック項目
 });
 
 // ---- 1秒の間の、ピントの見方(1コマでも、下限を超えたら、OK) ----
-test("ピントの下限: 40 以上が、OK。39.9 は、だめ。測れていない(null)は、だめ", () => {
-  assert.ok(sharpOk(40) && sharpOk(41) && sharpOk(5000) && !sharpOk(39.9) && !sharpOk(0) && !sharpOk(null) && !sharpOk(undefined) && !sharpOk(NaN));
+test("ピントの下限: 15 以上が、OK。14.9 は、だめ。測れていない(null)は、だめ", () => {
+  assert.equal(T.sharpMin, 15);
+  assert.ok(sharpOk(15) && sharpOk(16) && sharpOk(5000) && !sharpOk(14.9) && !sharpOk(0) && !sharpOk(null) && !sharpOk(undefined) && !sharpOk(NaN));
 });
-test("1秒の間の、ピント: 1コマでも、40 以上があれば、1秒たった時に、撮る(下回るコマが、混ざっていても、数え直さない)", () => {
-  // ピント以外の条件が、ずっと、そろっている。 くっきり度は、10, 5, 50, 8, 3, … と、下回るコマが、多い。 100ms ごとに、測る
+test("1秒の間の、ピント: 1コマでも、15 以上があれば、1秒たった時に、撮る(下回るコマが、混ざっていても、数え直さない)", () => {
+  // ピント以外の条件が、ずっと、そろっている。 くっきり度は、10, 5, 50, 8, 3, … と、15 を、下回るコマが、多い。 100ms ごとに、測る
   let s = { since: null, bestSharp: null, log: [] }, shot = null;
   const seq = [10, 5, 50, 8, 3, 7, 2, 9, 4, 6, 1, 8];   // 3番目に、50(1コマだけ、下限超え)
   seq.forEach((v, k) => { s = stepHold(s, { othersOk: true, sharp: v, measured: true, now: 1000 + k * 100 }); if (s.shoot && shot == null) shot = { k, best: s.bestSharp, log: s.log.length }; });
@@ -416,10 +417,10 @@ test("1秒の間の、ピント: 1コマでも、40 以上があれば、1秒た
 });
 test("1秒の間の、ピント: 全部のコマが、下限未満なら、撮らない(そろっている間は、待ち続ける)。 1コマでも、超えたら、すぐ、撮る", () => {
   let s = { since: null, bestSharp: null, log: [] };
-  for (let k = 0; k < 30; k++) { s = stepHold(s, { othersOk: true, sharp: 30 + (k % 3), measured: true, now: 1000 + k * 100 }); assert.ok(!s.shoot, "撮らない " + k); }
+  for (let k = 0; k < 30; k++) { s = stepHold(s, { othersOk: true, sharp: 10 + (k % 3), measured: true, now: 1000 + k * 100 }); assert.ok(!s.shoot, "撮らない " + k); }
   assert.ok(s.ready && s.progress === 1 && !sharpOk(s.bestSharp));
-  s = stepHold(s, { othersOk: true, sharp: 41, measured: true, now: 5000 });
-  assert.ok(s.shoot && s.bestSharp === 41 && s.improved);
+  s = stepHold(s, { othersOk: true, sharp: 16, measured: true, now: 5000 });
+  assert.ok(s.shoot && s.bestSharp === 16 && s.improved);
 });
 test("1秒の間の、ピント: 測っていないコマは、数えない。 ピント以外の条件が、外れたら、時間も、いちばんの値も、数え直す。 いちばんの更新は、improved で、知らせる", () => {
   let s = { since: null, bestSharp: null, log: [] };
