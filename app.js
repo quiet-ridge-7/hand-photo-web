@@ -4,7 +4,7 @@
 import { createHandLandmarker } from "./hand_setup.mjs";
 import { T, evaluate, facingOf, VERSION, holdProgress, stepHold, motionScore, pointsOf, meanLuma, toGray, sharpness, patchCenters, combineMeasures, makeGuide, GUIDE_TILT_DEG, guideMatch, fingertipRects, nailCropMatrix, SIL, SIL_BONES, PALM_POLY, silDisks, STEPS, nextStep, stepHelp, stepFileName, nailFileName } from "./guide.mjs";
 
-const APP_VERSION = "v47";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
+const APP_VERSION = "v48";   // guide.mjs の VERSION と、同じ値(違えば、古いファイルが、混ざっている)
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
@@ -39,6 +39,9 @@ const state = {
   resetArmed: false,       // 「最初から、撮り直す」を、1回、押した状態(もう一度、押すと、消える)
   hs: { since: null, bestSharp: null, log: [] },   // 1秒の間の、ピントの見方の、状態(guide.mjs の stepHold)
   best: { canvas: document.createElement("canvas"), has: false, sharp: -1, lm: null, frame: null, log: [] },   // 全条件が、そろっている間(約1秒)で、いちばん、くっきりした1コマ(自動撮影で、これを、使う)
+  reattachWanted: false,   // 映像が出た約1秒後に、カメラを、1回、付け直す予定
+  reattachAt: 0,           // 付け直す時刻(0 = まだ、映像を、待っている)
+  screenPortrait: window.innerHeight > window.innerWidth,   // 画面の向き(変わったら、付け直す)
   camToken: 0,             // カメラを、始め直した回数(古い、始めの結果を、捨てるため)
   cooldownUntil: 0,        // この時刻までは、次を撮らない(撮った直後の、案内を見せる間)
   userPicked: false,       // 左上の4つを、自分で押して、選んだか(選んだ時は、手の左右で、勝手に、変えない)
@@ -158,9 +161,36 @@ function renderChecks(checks) {
 }
 
 // ---- カメラ ----
-async function startCamera() {
+// ---- カメラの、付け直し ----
+//   起動の直後、映像の絵だけが、小さく出ることがある(iPhone)。「カメラを切り替える」を、2回押すと、直る = カメラを、付け直すと、直る。
+//   そこで、カメラを始めた時(起動、切り替え)と、画面の向きが変わった時は、映像が出た約1秒後に、カメラを、1回だけ、付け直す(くり返さない)。 撮った写真は、消えない。
+const REATTACH_MS = 1000;
+function maybeReattach(now) {
+  if (!state.reattachWanted || !state.stream || !video.videoWidth || state.capturing) return;
+  if (!state.reattachAt) { state.reattachAt = now + REATTACH_MS; return; }
+  if (now < state.reattachAt) return;
+  startCamera({ reattach: false });
+}
+window.addEventListener("resize", () => {
+  const portrait = window.innerHeight > window.innerWidth;
+  if (portrait === state.screenPortrait) return;   // アドレス欄の出入りなど、向きが同じ時は、何もしない
+  state.screenPortrait = portrait;
+  state.reattachWanted = true;
+  state.reattachAt = performance.now() + REATTACH_MS;
+});
+
+// reattach: 映像が出た後に、もう1回、付け直すか(付け直しの時は、false)
+async function startCamera({ reattach = true } = {}) {
   stopCamera();
   const token = ++state.camToken;
+  state.reattachWanted = reattach;
+  state.reattachAt = 0;
+  // 付け直しの間は、撮影の判定を、数え直す
+  state.hs = { since: null, bestSharp: null, log: [] };
+  state.best.has = false;
+  state.hold = { since: null, progress: 0, ready: false };
+  state.history = [];
+  state.lastVideoTime = -1;
   setStatus("カメラを準備しています…");
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     setStatus("このブラウザでは、カメラが使えません(https で開いているかを、確かめてください)。");
@@ -193,6 +223,7 @@ async function startCamera() {
   video.classList.toggle("mirror", mirror);
   overlay.classList.toggle("mirror", mirror);
   video.play().catch(() => {});   // 再生の答えを、待たない(iPhone で、答えが、来ない時にも、状態が、進むように)
+  window.__camStarts = (window.__camStarts || 0) + 1;   // 試験・確認用: カメラを、付けた回数
   setStatus("カメラが映っています");
 }
 
@@ -324,6 +355,7 @@ window.addEventListener("orientationchange", () => { setTimeout(layoutVideo, 300
 function loop() {
   requestAnimationFrame(loop);
   if (++layoutState.tick % 6 === 0) layoutVideo();   // 映像の大きさを、確かめる(ずれていたら、直す)
+  maybeReattach(performance.now());   // 起動の直後などに、カメラを、1回、付け直す
   if (!state.landmarker || video.readyState < 2 || !video.videoWidth) return;
   if (video.currentTime === state.lastVideoTime) return;   // 新しいコマが、まだ
   state.lastVideoTime = video.currentTime;

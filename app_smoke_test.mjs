@@ -85,6 +85,7 @@ try {
     // カメラの許可の確認が、出たまま、答えが来ない場合(?gum=hang)と、画質の指定が、通らない場合(?gum=over。1回目だけ、失敗)の、再現
     if (location.search.includes("gum=hang")) navigator.mediaDevices.getUserMedia = () => new Promise(() => {});
     if (location.search.includes("gum=portrait")) { navigator.mediaDevices.getUserMedia = () => { const c = document.createElement("canvas"); c.width = 360; c.height = 640; const x = c.getContext("2d"); let t = 0; setInterval(() => { t++; x.fillStyle = "#334"; x.fillRect(0, 0, 360, 640); x.fillStyle = "#e0b090"; x.fillRect(60 + (t % 40), 200, 200, 300); }, 33); return Promise.resolve(c.captureStream(30)); }; }   // 縦長(360 × 640。9:16)の映像(スマホの、縦持ちの、外側カメラの、再現)
+    if (location.search.includes("gum=count")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); return orig(c); }; }
     if (location.search.includes("gum=over")) { const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); let n = 0; window.__gumCalls = []; navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls.push(JSON.stringify(c)); if (n++ === 0) { const e = new Error("画質の指定が、通らない"); e.name = "OverconstrainedError"; return Promise.reject(e); } return orig(c); }; }
     if (location.search.includes("fake=1")) {
       window.__HAND_FAKE__ = { detectForVideo() { const h = window.__handNow; return h ? { landmarks: [h.landmarks], handedness: [[{ categoryName: h.label }]] } : { landmarks: [], handedness: [] }; } };
@@ -326,7 +327,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await load("?gum=portrait");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /カメラが映っています/.test(document.getElementById("status").textContent)`, "縦長の映像", 15000).catch(() => {});
-  await sleep(1500);
+  await waitFor(`window.__camStarts >= 2`, "カメラの付け直し", 15000).catch(() => {});
+  await sleep(1200);
   const bp = await boxInfo();
   check("L1 縦持ちのスマホ(390 × 844)に、縦長(9:16)の映像: 映像は、期待の大きさ(高さ = 画面の 70%、幅 = 高さ × 9/16)で、出る。小さくならない", bp.vw === 360 && bp.vh === 640 && Math.abs(bp.v[2] - bp.want[0]) <= 2 && Math.abs(bp.v[3] - bp.want[1]) <= 2 && bp.want[1] === bp.maxH, JSON.stringify(bp));
   check("L2 ガイドや手の点を描く絵(オーバーレイ)は、映像と、同じ位置・同じ大きさ。映像の枠の高さは、映像の高さと同じ(余白が、上下に、出ない)", JSON.stringify(bp.o) === JSON.stringify(bp.v) && Math.abs(bp.stageH - bp.want[1]) <= 2, JSON.stringify(bp));
@@ -339,9 +341,32 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await load("");
   await waitFor(`document.getElementById("video").videoWidth > 0 && /カメラが映っています/.test(document.getElementById("status").textContent)`, "横長の画面の映像", 15000).catch(() => {});
-  await sleep(1500);
+  await waitFor(`window.__camStarts >= 2`, "カメラの付け直し", 15000).catch(() => {});
+  await sleep(1200);
   const bw = await boxInfo();
   check("L4 PC の横長の画面(1280 × 800)に、横長(4:3)の映像: 期待の大きさ(高さ = 画面の 80% 以内、枠いっぱい)で、出る。映像と、描画の絵は、同じ", Math.abs(bw.v[2] - bw.want[0]) <= 2 && Math.abs(bw.v[3] - bw.want[1]) <= 2 && JSON.stringify(bw.o) === JSON.stringify(bw.v) && bw.v[3] <= bw.maxH + 2, JSON.stringify(bw));
+  await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
+
+  // ---- カメラの付け直し(起動の直後に、映像の絵だけが小さく出ることがある対策) ----
+  const calls = () => ev(`window.__gumCalls.length`);
+  const settle = async (n) => { await waitFor(`window.__gumCalls && window.__gumCalls.length >= ${n}`, "カメラを " + n + " 回", 20000).catch(() => {}); await sleep(3500); return calls(); };
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await load("?fake=1&gum=count");
+  const c1 = await settle(2);
+  check("R1 起動すると、映像が出た後に、カメラを、1回だけ、付け直す(合わせて 2回。3.5秒たっても、2回のまま)。映像は、出ている", c1 === 2 && /カメラが映っています/.test(await text("#status")) && (await ev(`document.getElementById("video").videoWidth > 0`)), JSON.stringify([c1, await text("#status")]));
+  await ev(`document.getElementById("shoot").click(); true`);
+  await waitFor(`document.querySelectorAll("#steps li.done").length === 1`, "手動の撮影", 8000).catch(() => {});
+  await ev(`document.getElementById("flip").click(); true`);
+  const c2 = await settle(c1 + 2);
+  check("R2 「カメラを切り替える」を押した時も、切り替えた後に、1回だけ、付け直す(2回 増える)", c2 === c1 + 2, JSON.stringify([c1, c2]));
+  check("R3 付け直しても、撮った写真は、消えない", (await ev(`document.querySelectorAll("#steps li.done").length`)) === 1, String(await ev(`document.querySelectorAll("#steps li.done").length`)));
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  const c3 = await settle(c2 + 1);
+  check("R4 画面の向きが変わった時(横 → 縦)は、1回だけ、付け直す", c3 === c2 + 1, JSON.stringify([c2, c3]));
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 780, deviceScaleFactor: 2, mobile: true });
+  await sleep(3500);
+  const c4 = await calls();
+  check("R5 向きが同じまま、大きさだけが変わる時(アドレス欄の出入りなど)は、付け直さない", c4 === c3, JSON.stringify([c3, c4]));
   await send("Emulation.setDeviceMetricsOverride", { width: 0, height: 0, deviceScaleFactor: 0, mobile: false });
 
   // ---- C. PWA(manifest、アイコン、サービスワーカー、オフライン) ----
